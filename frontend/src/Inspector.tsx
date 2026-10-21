@@ -287,6 +287,40 @@ export default function Inspector(p: Props) {
                 />
               </div>
             </div>
+            {browserMode && (
+              <>
+                <Toggle
+                  label="Caption background"
+                  checked={!!style.box?.color}
+                  disabled={disabled}
+                  onChange={(enabled) =>
+                    cap({ box: { ...style.box, color: enabled ? '#004b06' : '', opacity: 1 } })
+                  }
+                />
+                {style.box?.color && (
+                  <>
+                    <label className="field">
+                      Box colour
+                      <input
+                        type="color"
+                        aria-label="Caption box colour"
+                        value={style.box.color}
+                        disabled={disabled}
+                        onChange={(e) => cap({ box: { ...style.box, color: e.target.value } })}
+                      />
+                    </label>
+                    <Toggle
+                      label="Separate rounded boxes per line"
+                      checked={!!style.box.per_line}
+                      disabled={disabled}
+                      onChange={(per_line) =>
+                        cap({ box: { ...style.box, per_line, radius: per_line ? 9 : 0 } })
+                      }
+                    />
+                  </>
+                )}
+              </>
+            )}
             <Slider
               label="Vertical position"
               min={-560}

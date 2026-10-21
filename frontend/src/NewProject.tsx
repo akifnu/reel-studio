@@ -37,6 +37,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
     dialog = useRef<HTMLDialogElement>(null);
   const [captionScript, setCaptionScript] = useState('');
   const [referenceNotes, setReferenceNotes] = useState('');
+  const [useReferenceCaptions, setUseReferenceCaptions] = useState(true);
   useEffect(() => {
     dialog.current?.showModal();
     void api<Upload[]>('/uploads')
@@ -57,7 +58,10 @@ export default function NewProject({ onClose, onCreated }: Props) {
           setSources((old) => [...old.filter((x) => x.id !== record.id), record]);
           if (name === 'Untitled project') setName(file.name.replace(/\.[^.]+$/, ''));
         }
-        if (role === 'sample') setSample(record);
+        if (role === 'sample') {
+          setSample(record);
+          setUseReferenceCaptions(true);
+        }
         if (role === 'music') setMusic(record);
       }
     } catch (e) {
@@ -96,7 +100,9 @@ export default function NewProject({ onClose, onCreated }: Props) {
         duration,
         lang,
         notes,
-        ...(browserMode ? { caption_script: captionScript } : {}),
+        ...(browserMode
+          ? { caption_script: captionScript, reference_captions: useReferenceCaptions }
+          : {}),
       });
       onCreated(result.id, result.task_id);
     } catch (e) {
@@ -198,9 +204,36 @@ export default function NewProject({ onClose, onCreated }: Props) {
         )}
         <p className="field-hint reference-limit">
           {browserMode
-            ? 'Free browser mode: watch the reference and match it manually with the caption, hook, cut and motion controls. It does not automatically detect pacing, copy colours or extract the hook.'
+            ? 'Caption matching samples 12 frames from a 5-second section, locally. Solid-colour boxes with white text can be measured; pacing, video colour grading and hook wording stay manual.'
             : 'The server analyzes this reference separately. Review the measured style before it is applied to your raw footage.'}
         </p>
+        {browserMode && sample?.caption_analysis && (
+          <div className="caption-match-note" role="status">
+            {sample.caption_analysis.status === 'detected' ? (
+              <>
+                <label>
+                  <input
+                    type="checkbox"
+                    aria-label="Use measured caption style"
+                    checked={useReferenceCaptions}
+                    disabled={!!busy}
+                    onChange={(e) => setUseReferenceCaptions(e.target.checked)}
+                  />
+                  Use measured caption style
+                </label>
+                <p>
+                  {sample.caption_analysis.matches}/{sample.caption_analysis.frames} frames matched
+                  · {sample.caption_analysis.window_seconds?.toFixed(1)}s window ·{' '}
+                  {sample.caption_analysis.style?.size}px text · box{' '}
+                  {sample.caption_analysis.style?.box?.color}
+                </p>
+                <p>{sample.caption_analysis.notes}</p>
+              </>
+            ) : (
+              <p>{sample.caption_analysis.notes}</p>
+            )}
+          </div>
+        )}
         {sample && (
           <label className="field">
             What do you like about this edit?
@@ -387,15 +420,21 @@ export default function NewProject({ onClose, onCreated }: Props) {
             <button
               key={id}
               disabled={!!busy}
-              className={`preset ${preset === id ? 'selected' : ''} ${id}`}
+              className={`preset ${preset === id && !(browserMode && sample?.caption_analysis?.status === 'detected' && useReferenceCaptions) ? 'selected' : ''} ${id}`}
               onClick={() => {
                 setPreset(id);
+                setUseReferenceCaptions(false);
               }}
             >
               <span>{aa}</span>
               <strong>{title}</strong>
               <small>{sub}</small>
-              {preset === id && <Check size={13} />}
+              {preset === id &&
+                !(
+                  browserMode &&
+                  sample?.caption_analysis?.status === 'detected' &&
+                  useReferenceCaptions
+                ) && <Check size={13} />}
             </button>
           ))}
         </div>

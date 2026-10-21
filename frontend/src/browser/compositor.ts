@@ -33,8 +33,9 @@ export function compile(p: LocalProject, r: Reel) {
         r.caption_text?.[`${segment.src}:${s.id}`] ?? r.caption_text?.[String(s.id)] ?? s.text;
       if (text.trim()) {
         const words = text.trim().split(/\s+/),
-          groups = Array.from({ length: Math.ceil(words.length / 5) }, (_, i) =>
-            words.slice(i * 5, i * 5 + 5).join(' '),
+          perCaption = Math.max(1, Math.min(30, captionStyle(r).words_per_caption || 5)),
+          groups = Array.from({ length: Math.ceil(words.length / perCaption) }, (_, i) =>
+            words.slice(i * perCaption, i * perCaption + perCaption).join(' '),
           ),
           a = offset + Math.max(start, s.s) - start,
           b = offset + Math.min(end, s.e) - start;
@@ -97,14 +98,15 @@ export function captionCanvas(r: Reel, text: string, w: number, h: number, alpha
   let line = '';
   for (const word of words) {
     const candidate = line ? line + ' ' + word : word;
-    if (c.measureText(candidate).width > w * 0.88 && line) {
+    if (c.measureText(candidate).width > w * (style.max_width || 0.88) && line) {
       lines.push(line);
       line = word;
     } else line = candidate;
   }
   if (line) lines.push(line);
   const cx = Math.min(w * 0.9, Math.max(w * 0.1, w / 2 + ((style.x || 0) * h) / 1280));
-  const total = lines.length * size * 1.25,
+  const leading = size * (style.line_height || 1.25);
+  const total = lines.length * leading,
     cy = Math.min(
       h - total / 2 - 12,
       Math.max(total / 2 + 12, h / 2 + ((style.y || 0) * h) / 1280),
@@ -112,20 +114,46 @@ export function captionCanvas(r: Reel, text: string, w: number, h: number, alpha
   c.globalAlpha = alpha;
   c.translate(cx, cy);
   c.scale(pop, pop);
+  const padX = ((style.box?.pad_x ?? 10) * h) / 1280,
+    padY = ((style.box?.pad_y ?? 6) * h) / 1280;
+  const radius = ((style.box?.radius || 0) * h) / 1280;
+  const rounded = (x: number, y: number, width: number, height: number) => {
+    c.beginPath();
+    c.roundRect(x, y, width, height, Math.min(radius, height / 2, width / 2));
+    c.fill();
+  };
   if (style.box?.color) {
     c.fillStyle = style.box.color;
     c.globalAlpha = alpha * (style.box.opacity ?? 0.7);
-    const width = Math.min(w * 0.95, Math.max(...lines.map((l) => c.measureText(l).width)) + 20);
-    c.fillRect(-width / 2, -total / 2 - 6, width, total + 12);
+    if (style.box.per_line) {
+      lines.forEach((line, index) => {
+        const metrics = c.measureText(line),
+          ink = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || size * 0.75;
+        const width = Math.min(w * 0.98, metrics.width + padX * 2),
+          y = (index - (lines.length - 1) / 2) * leading;
+        rounded(-width / 2, y - ink / 2 - padY, width, ink + padY * 2);
+      });
+    } else {
+      const width = Math.min(
+        w * 0.95,
+        Math.max(...lines.map((l) => c.measureText(l).width)) + padX * 2,
+      );
+      rounded(-width / 2, -total / 2 - padY, width, total + padY * 2);
+    }
     c.globalAlpha = alpha;
   }
   lines.forEach((line, index) => {
-    const y = (index - (lines.length - 1) / 2) * size * 1.25;
+    let y = (index - (lines.length - 1) / 2) * leading;
+    if (style.box?.per_line) {
+      const metrics = c.measureText(line);
+      c.textBaseline = 'alphabetic';
+      y += (metrics.actualBoundingBoxAscent - metrics.actualBoundingBoxDescent) / 2;
+    }
     c.strokeStyle = style.stroke?.color || '#000000';
     c.lineWidth = ((style.stroke?.width ?? 3) * h) / 1280;
-    if (c.lineWidth) c.strokeText(line, 0, y, w * 0.88);
+    if (c.lineWidth) c.strokeText(line, 0, y, w * (style.max_width || 0.88));
     c.fillStyle = style.fill || '#ffffff';
-    c.fillText(line, 0, y, w * 0.88);
+    c.fillText(line, 0, y, w * (style.max_width || 0.88));
   });
   return canvas;
 }

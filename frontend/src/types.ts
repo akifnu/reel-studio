@@ -7,9 +7,29 @@ export type TextStyle = {
   x?: number;
   case?: string;
   stroke?: { color?: string; width?: number };
-  box?: { color?: string; opacity?: number };
+  box?: {
+    color?: string;
+    opacity?: number;
+    per_line?: boolean;
+    radius?: number;
+    pad_x?: number;
+    pad_y?: number;
+  };
+  line_height?: number;
+  max_width?: number;
+  words_per_caption?: number;
   highlight?: { fill?: string; mode?: string };
   anim?: { in?: string; in_dur?: number };
+};
+export type CaptionAnalysis = {
+  version?: number;
+  window_seconds?: number;
+  times?: number[];
+  status: 'detected' | 'unsupported';
+  frames: number;
+  matches: number;
+  style?: TextStyle;
+  notes: string;
 };
 export type Editing = {
   captions?: { enabled?: boolean; style?: TextStyle };
@@ -116,7 +136,13 @@ export type Project = {
   style: Style;
   sources: Record<string, Source>;
   transcripts: Record<string, { sentences: Sentence[]; timing: string; lang: string }>;
-  reference?: { id: string; name: string; notes: string; mode: 'manual' | 'analyzed' };
+  reference?: {
+    id: string;
+    name: string;
+    notes: string;
+    mode: 'manual' | 'analyzed' | 'caption-measured';
+    caption_analysis?: CaptionAnalysis;
+  };
   sample_url: string | null;
   sample_review_url: string | null;
   music_url: string | null;
@@ -158,6 +184,7 @@ export type Upload = {
   role: string;
   bytes: number;
   preview_url?: string;
+  caption_analysis?: CaptionAnalysis;
 };
 export type Proposal = {
   changes: Changes;

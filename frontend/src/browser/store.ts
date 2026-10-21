@@ -1,11 +1,12 @@
 // Files, previews and projects never leave this browser.
-import type { Project, Upload } from '../types';
+import type { Project, Upload, CaptionAnalysis } from '../types';
 export type LocalAsset = Upload & {
   blob: Blob;
   width: number;
   height: number;
   duration: number;
   digest?: string;
+  caption_analysis?: CaptionAnalysis;
 };
 export type LocalProject = Project & {
   musicId?: string;

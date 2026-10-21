@@ -31,6 +31,7 @@ import type { Changes, Config, Project, ProjectSummary, Reel } from './types';
 import { merge, phase, time } from './utils';
 import NewProject from './NewProject';
 import ProjectInputs from './ProjectInputs';
+import CapCutExport from './CapCutExport';
 import Player from './Player';
 import Inspector from './Inspector';
 import { browserMode } from './features';
@@ -492,6 +493,13 @@ export default function App() {
                 </button>
               </>
             )}
+            {browserMode && project && (
+              <CapCutExport
+                project={project}
+                disabled={working || project.busy || dirty}
+                run={run}
+              />
+            )}
             <a
               className={`button dark compact ${!project?.deliverables.length ? 'is-disabled' : ''}`}
               aria-label="Export reels"
@@ -612,7 +620,21 @@ export default function App() {
                 </p>
               </div>
             )}
-            <ProjectInputs project={project} />
+            <ProjectInputs
+              project={project}
+              disabled={working || dirty || project.busy}
+              onMatch={
+                browserMode
+                  ? () =>
+                      void run(() =>
+                        api(`/projects/${project.id}/reference-captions`, 'POST', {
+                          generation: project.generation,
+                          revision: project.revision,
+                        }),
+                      )
+                  : undefined
+              }
+            />
             {project.error && (
               <div className="state-callout error">
                 <AlertCircle size={20} />

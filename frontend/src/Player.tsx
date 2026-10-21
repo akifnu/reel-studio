@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import type { Changes, Project, Reel } from './types';
 import { shotAt, sourceTime, time } from './utils';
+import { browserMode } from './features';
 
 type Props = {
   project: Project;
@@ -30,6 +31,7 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
     [muted, setMuted] = useState(false),
     [mediaError, setMediaError] = useState('');
   const [size, setSize] = useState({ w: 270, h: 480 });
+  const [captionImage, setCaptionImage] = useState('');
   const video = useRef<HTMLVideoElement>(null),
     music = useRef<HTMLAudioElement>(null),
     stage = useRef<HTMLDivElement>(null);
@@ -66,6 +68,28 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
   }
   if ((patch.title_text ?? reel.title_text) && t < 2)
     text = patch.title_text ?? reel.title_text ?? text;
+  const captionKey = JSON.stringify(capStyle);
+  useEffect(() => {
+    let live = true;
+    if (browserMode && view === 'source' && enabled && text) {
+      void import('./browser/compositor').then(({ captionCanvas }) => {
+        const r = {
+          ...reel,
+          editing: { ...reel.editing, captions: { enabled: true, style: capStyle } },
+        };
+        const canvas = captionCanvas(
+          r,
+          text,
+          Math.max(1, Math.round(size.w)),
+          Math.max(1, Math.round(size.h)),
+        );
+        if (live) setCaptionImage(canvas.toDataURL());
+      });
+    } else setCaptionImage('');
+    return () => {
+      live = false;
+    };
+  }, [captionKey, text, size.w, size.h, view, enabled]);
   const scale = source ? Math.max(size.w / source.width, size.h / source.height) * crop.zoom : 1;
   const pw = (source?.width || size.w) * scale,
     ph = (source?.height || size.h) * scale;
@@ -312,6 +336,7 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
                   className="caption-overlay"
                   aria-label="Live caption preview"
                   style={{
+                    opacity: browserMode ? 0 : 1,
                     fontFamily: `"${capStyle.font || 'Arimo'}", sans-serif`,
                     fontSize: ((capStyle.size || 56) * size.h) / refH,
                     fontWeight: capStyle.weight || 700,
@@ -359,6 +384,9 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
                 </div>
               )}
             </>
+          )}
+          {browserMode && view === 'source' && enabled && captionImage && (
+            <img className="canvas-caption-overlay" src={captionImage} alt="" aria-hidden="true" />
           )}
           <span className="stage-badge">
             {view === 'render'

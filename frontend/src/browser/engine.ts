@@ -414,3 +414,127 @@ export async function outputBlob(url: string) {
   if (!blob) throw new Error('This output was removed from browser storage.');
   return blob;
 }
+
+// A separate, explicit export. It never changes the accepted reel or its approval.
+export async function cleanCutClips(
+  p: LocalProject,
+  signal: AbortSignal,
+  progress: (s: string) => void,
+) {
+  const jobs: { name: string; key: string; shot: Reel['shot_list'][number]; reel: Reel }[] = [];
+  for (const reel of p.reels)
+    for (const [i, shot] of reel.shot_list.entries()) {
+      if (!p.sources[shot.source] || shot.duration <= 0) throw new Error('A raw cut is missing.');
+      const key =
+        p.id +
+        '-capcut-' +
+        (await hash({
+          version: 1,
+          source: p.sources[shot.source].id,
+          shot,
+          crop: reel.editing?.crop,
+          output: OUTPUT,
+        }));
+      jobs.push({
+        name: `${reel.id}/clips/${String(i + 1).padStart(3, '0')}.mp4`,
+        key,
+        shot,
+        reel,
+      });
+    }
+  if (!jobs.length || jobs.length > 60 || jobs.reduce((n, j) => n + j.shot.duration, 0) > 120.01)
+    throw new Error('Mobile packs support at most 60 cuts and 120 seconds.');
+  const files: Record<string, Blob> = {},
+    pending = [] as typeof jobs;
+  for (const job of jobs) {
+    checkAbort(signal);
+    const blob = await get<Blob>('media', job.key),
+      sha = await get<string>('media', job.key + '-sha');
+    if (blob && sha && (await hash(blob)) === sha) {
+      files[job.name] = blob;
+      progress('Reusing cached clean clips…');
+    } else pending.push(job);
+  }
+  if (Object.values(files).reduce((n, b) => n + b.size, 0) > 100 * 1024 ** 2)
+    throw new Error('The mobile clip pack exceeds 100 MB. Export shorter reels.');
+  if (!pending.length) return files;
+  const { engine: e, close } = await load(progress, signal);
+  const loaded = new Map<string, { name: string; audio: boolean }>();
+  try {
+    for (const [index, job] of pending.entries()) {
+      checkAbort(signal);
+      progress(
+        `Preparing mobile clip ${index + 1}/${pending.length} · no captions or background music`,
+      );
+      const source = p.sources[job.shot.source];
+      let input = loaded.get(job.shot.source);
+      if (!input) {
+        const a = await asset(source.id),
+          buffer = await a.blob.arrayBuffer();
+        if ((await hash(buffer)) !== (a.digest || a.id))
+          throw new Error('Raw footage changed. Export blocked.');
+        const name = 'source-' + loaded.size;
+        await e.writeFile(name, new Uint8Array(buffer));
+        const info = await probe(e, name);
+        input = { name, audio: info.streams.some((s) => s.codec_type === 'audio') };
+        loaded.set(job.shot.source, input);
+      }
+      const crop = { x: 0.5, y: 0.5, zoom: 1, ...job.reel.editing?.crop },
+        aspect = OUTPUT.w / OUTPUT.h;
+      const cw = Math.max(
+          2,
+          Math.floor(Math.min(source.width, source.height * aspect) / crop.zoom / 2) * 2,
+        ),
+        ch = Math.max(2, Math.floor(cw / aspect / 2) * 2);
+      const x = Math.max(0, Math.min(source.width - cw, crop.x * source.width - cw / 2)),
+        y = Math.max(0, Math.min(source.height - ch, crop.y * source.height - ch / 2));
+      const args = ['-ss', String(job.shot.source_in), '-i', input.name];
+      if (!input.audio) args.push('-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo');
+      args.push(
+        '-t',
+        String(job.shot.duration),
+        '-map',
+        '0:v:0',
+        '-map',
+        input.audio ? '0:a:0' : '1:a:0',
+        '-vf',
+        `crop=${cw}:${ch}:${Math.floor(x)}:${Math.floor(y)},scale=${OUTPUT.w}:${OUTPUT.h},setsar=1,fps=${OUTPUT.fps}`,
+        ...encoder,
+        '-c:a',
+        'aac',
+        '-b:a',
+        '128k',
+        '-ar',
+        '48000',
+        '-ac',
+        '2',
+        '-af',
+        `apad,atrim=duration=${job.shot.duration}`,
+        '-movflags',
+        '+faststart',
+        'clean.mp4',
+      );
+      await exec(e, args, signal);
+      const info = await probe(e, 'clean.mp4'),
+        v = info.streams.find((s) => s.codec_type === 'video');
+      if (
+        v?.width !== OUTPUT.w ||
+        v.height !== OUTPUT.h ||
+        Math.abs(Number(info.format.duration) - job.shot.duration) > 0.2
+      )
+        throw new Error('A mobile clip failed its duration or picture-size check.');
+      const blob = new Blob([await bytes(e, 'clean.mp4')], { type: 'video/mp4' });
+      if (blob.size > 30 * 1024 ** 2)
+        throw new Error('A mobile clip exceeds the 30 MB budget. Use shorter cuts.');
+      await put('media', job.key, blob);
+      await put('media', job.key + '-sha', await hash(blob));
+      files[job.name] = blob;
+      await e.deleteFile('clean.mp4');
+      if (Object.values(files).reduce((n, b) => n + b.size, 0) > 100 * 1024 ** 2)
+        throw new Error('The mobile clip pack exceeds 100 MB. Export shorter reels.');
+    }
+    return files;
+  } finally {
+    close();
+  }
+}

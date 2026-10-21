@@ -7,11 +7,17 @@ required. The server edition remains available in this repository.
 1. Choose **New project**. **Reference reel** is an optional example of the editing
    style you like; **Raw footage** is the required content to edit. They have
    separate uploads and library labels. A reference alone cannot create a reel.
-   In the browser, watch the reference, choose a starting caption preset and write
-   a style brief. Match the cut pacing, captions, motion and hook manually with the
-   editor controls; references are not automatically analyzed or colour-matched.
-   Expand **Project inputs** to watch the reference and review your brief while
-   editing. Reference picture, speech and music never enter the output.
+   Caption matching samples **12 frames from the first five seconds**, at a maximum
+   analysis width of 360 pixels. For solid-colour boxes with white text it measures
+   the box colour, text size, placement and line layout, then applies rounded
+   per-line boxes to the raw footage's captions. The result is cached by file hash.
+   Review the detected style in the form; choosing a preset overrides it without
+   removing the reference. Unsupported styles are reported instead of guessed.
+   Exact font identity/weight and animation cannot be inferred reliably here;
+   Arial Regular is an approximation. Pacing, hook wording and video colour grading
+   remain manual. **Project inputs → Match reference captions on all reels** can
+   measure older references and rebuild the storyboard, requiring approval again.
+   Reference picture, speech and music never enter the output.
 2. Optionally enter a caption script (one line per caption). These timings are
    evenly spaced, not speech measurements. Blank input produces no invented speech.
 3. Alternatively, press **Auto captions (English)**. A pinned Whisper tiny
@@ -58,8 +64,8 @@ and download important outputs. Large captions or many overlays can exceed a
 phone's memory; use shorter footage if encoding fails. The image/GIF previews
 sample selected moments and are silent. Source playback approximates the draft.
 
-This edition uses presets and explicit cuts, not automatic reference analysis,
-face tracking, highlight understanding or server speech/QC evaluation. Browser
+This edition supports bounded boxed-caption measurement and explicit cuts, not
+complete reference-style transfer, face tracking, highlight understanding or server speech/QC evaluation. Browser
 checks verify encoded dimensions/duration; final visual/audio review is manual.
 Quick text instructions are local rules, not a general AI editing agent. yt-dlp
 URL ingestion and the complete Python pipeline remain server-edition features.
@@ -81,3 +87,35 @@ STUDIO_BROWSER_ONLY=1 STUDIO_TEST_URL=http://127.0.0.1:8765 npm --prefix fronten
 The browser CI job tests real upload, crop/cut/motion/caption/music/effect encoding,
 GIF approval, reviewed ZIP output, stale tabs, tampered previews, cancellation,
 mobile layout and reload recovery. The normal build/tests exercise server mode.
+
+## Continue editing in CapCut
+
+After accepting your finished reels, choose **Edit in CapCut**:
+
+- **Desktop editable draft ZIP** packages original raw footage, exact cut timings,
+  editable basic text/static framing and separate music. It does not encode more
+  video. Extract the ZIP and open its offline HTML installer in desktop Chrome or
+  Edge. The installer transfers a selected reel into a new, empty CapCut project;
+  it preserves native app version markers, registers media and backs up empty draft
+  files. This is an **experimental, unofficial desktop draft transfer**, not a
+  universal `.capcut` file. CapCut application compatibility cannot be verified in
+  this environment; encrypted/unknown layouts are rejected.
+- **Mobile clips ZIP** creates separate numbered H.264/AAC clips (540 × 960, 24 fps),
+  with the approved cuts/static crop and recording audio. Captions, background
+  music, SFX and motion are absent, so those can be remastered in CapCut. Extract,
+  select `001.mp4`, `002.mp4`, etc. in order, and add them to a new mobile project.
+  Crop edges and trim handles are absent; use the desktop pack for originals.
+  Encoding happens only on this explicit request. Clips are cached and verified
+  before reuse. Cancel preserves accepted outputs. Max 60 cuts/120 seconds,
+  30 MB/clip, 100 MB clean clips, 300 MB total ZIP inputs.
+
+Both include `captions.srt`, `edit-plan.json`, the accepted `approved-preview.mp4`,
+separate original music when supplied, and plain-language instructions. SRT mobile
+import is not assumed; use CapCut text/auto captions when unavailable. Style
+references are excluded. Desktop fonts/line wrapping may differ, and motion,
+caption animations, SFX and automatic music ducking must be recreated.
+
+Desktop draft schema references: [pyCapCut](https://github.com/GuanYixuan/pyCapCut)
+and [CapCut's project import limitations](https://www.capcut.com/help/import-a-previous-project-into-the-current-project).
+These exports run in the free browser edition; the server edition retains its
+existing MP4 export.

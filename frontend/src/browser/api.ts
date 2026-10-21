@@ -306,6 +306,12 @@ function validateChanges(changes: Changes) {
     [cfg?.captions?.style?.size, 12, 160],
     [cfg?.captions?.style?.y, -640, 640],
     [cfg?.captions?.style?.x, -640, 640],
+    [cfg?.captions?.style?.line_height, 0.8, 2],
+    [cfg?.captions?.style?.max_width, 0.2, 0.98],
+    [cfg?.captions?.style?.words_per_caption, 1, 30],
+    [cfg?.captions?.style?.box?.radius, 0, 128],
+    [cfg?.captions?.style?.box?.pad_x, 0, 128],
+    [cfg?.captions?.style?.box?.pad_y, 0, 128],
     [cfg?.music?.gain_db, -60, 6],
     [cfg?.sfx?.gain_db, -60, 6],
     [cfg?.motion?.punch_rate, 0, 1],
@@ -346,6 +352,17 @@ async function create(data: Record<string, any>) {
   const reference = data.sample ? await asset(data.sample) : undefined;
   if (reference && (reference.role !== 'sample' || !reference.width || !reference.height))
     throw new Error('Choose a video uploaded as a reference reel.');
+  if (reference && data.reference_captions !== false && reference.caption_analysis?.version !== 1) {
+    const url = await blobURL(reference.id, reference.blob),
+      video = await loadVideo(url);
+    try {
+      const { analyzeBoxedReference } = await import('./referenceStyle');
+      reference.caption_analysis = await analyzeBoxedReference(video);
+    } finally {
+      releaseVideo(video);
+    }
+    await put('assets', reference.id, reference);
+  }
   if (data.music && (await asset(data.music)).role !== 'music')
     throw new Error('Choose an audio file uploaded as background music.');
   const total = files.reduce((n, f) => n + f.duration, 0),
@@ -378,7 +395,11 @@ async function create(data: Record<string, any>) {
           id: reference.id,
           name: reference.name,
           notes: String(data.reference_notes || '').slice(0, 6000),
-          mode: 'manual',
+          mode:
+            data.reference_captions !== false && reference.caption_analysis?.status === 'detected'
+              ? 'caption-measured'
+              : 'manual',
+          caption_analysis: reference.caption_analysis,
         }
       : undefined,
     error: null,
@@ -393,6 +414,12 @@ async function create(data: Record<string, any>) {
     case: data.preset === 'bold' ? 'upper' : 'normal',
     anim: { in: 'none' },
   };
+  if (
+    data.reference_captions !== false &&
+    reference?.caption_analysis?.status === 'detected' &&
+    reference.caption_analysis.style
+  )
+    p.style.captions!.style = structuredClone(reference.caption_analysis.style);
   const script = String(data.caption_script || '')
     .split(/\n+/)
     .map((x) => x.trim())
@@ -690,6 +717,43 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           await put('projects', id, p);
           return launch(id, 'storyboard');
         }
+        if (action === 'reference-captions') {
+          current(p, data);
+          if (!p.reference)
+            throw new Error('Choose a reference reel when creating your project first.');
+          const a = await asset(p.reference.id);
+          let analysis = a.caption_analysis;
+          if (analysis?.version !== 1) {
+            const url = await blobURL(a.id, a.blob),
+              video = await loadVideo(url);
+            try {
+              const { analyzeBoxedReference } = await import('./referenceStyle');
+              analysis = await analyzeBoxedReference(video);
+            } finally {
+              releaseVideo(video);
+            }
+            a.caption_analysis = analysis;
+            await put('assets', a.id, a);
+          }
+          if (analysis.status !== 'detected' || !analysis.style) throw new Error(analysis.notes);
+          await put('undo', id, p);
+          p.reference.caption_analysis = analysis;
+          p.reference.mode = 'caption-measured';
+          p.style.captions = { present: true, style: analysis.style };
+          for (const r of p.reels)
+            r.editing = merge(r.editing || {}, {
+              captions: { enabled: true, style: analysis.style },
+            });
+          p.generation++;
+          p.revision++;
+          invalidate(p);
+          history(
+            p,
+            'Reference caption colour, boxes, size and position measured from a short sample; storyboard approval required.',
+          );
+          await put('projects', id, p);
+          return launch(id, 'storyboard');
+        }
         if (action === 'music') {
           current(p, data);
           if ((await asset(data.upload_id)).role !== 'music')
@@ -827,6 +891,15 @@ export async function upload(
       height: video.videoHeight,
       duration: video.duration,
     };
+    if (role === 'sample') {
+      const { analyzeBoxedReference } = await import('./referenceStyle');
+      const cached = await get<LocalAsset>('assets', id);
+      record.caption_analysis =
+        cached?.caption_analysis?.version === 1
+          ? cached.caption_analysis
+          : await analyzeBoxedReference(video, signal, progress);
+    }
+    checkAbort(signal);
     await put('assets', id, record);
     progress(100);
     const { blob: _, ...result } = record;

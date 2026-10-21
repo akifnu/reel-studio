@@ -1,6 +1,14 @@
 import type { Project } from './types';
 
-export default function ProjectInputs({ project }: { project: Project }) {
+export default function ProjectInputs({
+  project,
+  disabled = false,
+  onMatch,
+}: {
+  project: Project;
+  disabled?: boolean;
+  onMatch?: () => void;
+}) {
   if (project.demo) return null;
   return (
     <details className="project-inputs">
@@ -25,12 +33,26 @@ export default function ProjectInputs({ project }: { project: Project }) {
           )}
           {project.reference?.notes && <p className="reference-brief">{project.reference.notes}</p>}
           <p>
-            {project.reference?.mode === 'manual'
-              ? 'Visual reference for manual matching. Automatic style detection and colour matching are not available in browser mode. Adjust the edit controls, then review the storyboard.'
-              : project.reference
-                ? 'Analyzed separately by the server. Check the measured style and storyboard before approving.'
-                : 'No reference reel selected. Your edit starts from the chosen caption preset.'}
+            {project.reference?.mode === 'caption-measured'
+              ? 'Caption box colour, text size and position measured locally from a short reference sample. Font is approximate. Pacing, hook wording and colour grading remain manual.'
+              : project.reference?.mode === 'manual'
+                ? 'No measured caption style is applied. Match reference captions to analyze a short sample, or adjust the settings manually. Video colour grading stays manual.'
+                : project.reference
+                  ? 'Analyzed separately by the server. Check the measured style and storyboard before approving.'
+                  : 'No reference reel selected. Your edit starts from the chosen caption preset.'}
           </p>
+          {project.reference?.caption_analysis && (
+            <p>
+              {project.reference.caption_analysis.matches}/
+              {project.reference.caption_analysis.frames} sample frames matched ·{' '}
+              {project.reference.caption_analysis.window_seconds?.toFixed(1)}s window.
+            </p>
+          )}
+          {onMatch && project.reference && !project.terminal && (
+            <button className="button secondary" disabled={disabled} onClick={onMatch}>
+              Match reference captions on all reels
+            </button>
+          )}
           <small>Reference picture and audio are excluded from the edit.</small>
         </section>
         <section aria-label="Raw footage input">

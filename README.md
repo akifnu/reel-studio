@@ -6,7 +6,7 @@ The private **free browser edition** now handles local videos, real storyboard
 stills/GIFs, captions/crops/cuts/audio, explicit approval, MP4 rendering and ZIP
 downloads on your device. No installation, Render account or paid API is required.
 English auto captions are optional. Keep the tab open while processing.
-See [browser usage, budgets and limits](BROWSER.md).
+See [browser usage, reference-caption matching, CapCut remaster downloads, budgets and limits](BROWSER.md).
 
 The sections below describe the separate **server edition**, which uses the full
 Python pipeline and requires installation or a media-capable server.
