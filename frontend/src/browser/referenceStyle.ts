@@ -1,6 +1,7 @@
 import type { CaptionAnalysis, TextStyle } from '../types';
 import { checkAbort, seek } from './compositor';
 type Match = {
+  bounds: { x: number; y: number; w: number; h: number };
   colour: number[];
   fill: number[];
   x: number;
@@ -172,6 +173,7 @@ export function boxedCaptionPixels(data: Uint8ClampedArray, w: number, h: number
       }
       const core = [...coreBins.values()].sort((a, b) => b.n - a.n)[0];
       const match: Match = {
+        bounds: { x: minX, y: minY, w: bw, h: bh },
         colour: core.rgb.map((v) => v / core.n),
         fill: fg.map((v) => v / pixels),
         x: (minX + maxX) / 2 / w,
@@ -202,6 +204,8 @@ export async function analyzeBoxedReference(
   canvas.height = Math.round((canvas.width * video.videoHeight) / video.videoWidth);
   const c = canvas.getContext('2d', { willReadFrequently: true })!;
   const matches: Match[] = [];
+  let preview: CaptionAnalysis['preview'];
+  let best = 0;
   const window = Math.min(5, video.duration);
   // Stratified jitter: cover a short window, never scan the full reference.
   const times = Array.from({ length: 12 }, (_, i) =>
@@ -219,19 +223,34 @@ export async function analyzeBoxedReference(
       canvas.width,
       canvas.height,
     );
-    if (m) matches.push(m);
+    if (m) {
+      matches.push(m);
+      if (m.width * m.lines > best) {
+        best = m.width * m.lines;
+        const margin = 4,
+          x = Math.max(0, m.bounds.x - margin),
+          y = Math.max(0, m.bounds.y - margin);
+        const crop = document.createElement('canvas');
+        crop.width = Math.min(canvas.width - x, m.bounds.w + margin * 2);
+        crop.height = Math.min(canvas.height - y, m.bounds.h + margin * 2);
+        crop
+          .getContext('2d')!
+          .drawImage(canvas, x, y, crop.width, crop.height, 0, 0, crop.width, crop.height);
+        preview = { image: crop.toDataURL('image/png'), t };
+      }
+    }
     progress?.(50 + Math.round(((i + 1) / times.length) * 40));
     await new Promise((r) => setTimeout(r, 0));
   }
   const unsupported: CaptionAnalysis = {
     status: 'unsupported',
-    version: 1,
+    version: 2,
     window_seconds: window,
     times,
     frames: times.length,
     matches: matches.length,
     notes:
-      'No consistent solid-colour caption box was detected. Choose a preset or adjust captions manually; no style was guessed.',
+      'No consistent solid-colour caption box was detected. No style has been applied. Choose a clearer captioned reference. Remove the reference if you want to start from a preset.',
   };
   if (matches.length < 3) return unsupported;
   const group = matches.filter((m) => Math.abs(m.y - median(matches.map((x) => x.y))) < 0.08);
@@ -267,7 +286,8 @@ export async function analyzeBoxedReference(
   };
   return {
     status: 'detected',
-    version: 1,
+    preview,
+    version: 2,
     window_seconds: window,
     times,
     frames: times.length,

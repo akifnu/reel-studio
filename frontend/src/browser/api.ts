@@ -97,13 +97,15 @@ function invalidate(p: LocalProject) {
   for (const r of p.reels)
     r.render = { url: null, status: null, qc_verdict: null, issues: [], error: null, sha256: null };
 }
-async function launch(id: string, operation: 'storyboard' | 'render' | 'transcribe') {
+async function launch(id: string, operation: 'storyboard' | 'render' | 'transcribe' | 'reference') {
   const p = await project(id);
   if (p.busy) throw new Error('This project is already processing.');
   if (running.size)
     throw new Error(
       'Another local job is running. Wait for it to finish before starting this one.',
     );
+  const initial = structuredClone(p);
+  if (operation === 'reference') invalidate(p);
   const task = crypto.randomUUID(),
     controller = new AbortController();
   running.set(id, controller);
@@ -114,7 +116,9 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
       ? 'Preparing sampled storyboard…'
       : operation === 'render'
         ? 'Preparing your approved render…'
-        : 'Preparing optional English transcription…';
+        : operation === 'reference'
+          ? 'Detecting and copying reference captions…'
+          : 'Preparing optional English transcription…';
   p.status = 'running:' + operation;
   p.error = null;
   await put('projects', id, p);
@@ -130,6 +134,53 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
       }
     };
     try {
+      if (operation === 'reference') {
+        if (!p.reference) throw new Error('A reference reel is required.');
+        const a = await asset(p.reference.id);
+        let analysis = a.caption_analysis;
+        if (analysis?.version !== 2) {
+          const video = await loadVideo(await blobURL(a.id, a.blob), controller.signal);
+          try {
+            const { analyzeBoxedReference } = await import('./referenceStyle');
+            analysis = await analyzeBoxedReference(video, controller.signal, (n) =>
+              progress(`Detecting reference captions · ${n}%`),
+            );
+          } finally {
+            releaseVideo(video);
+          }
+          a.caption_analysis = analysis;
+          await put('assets', a.id, a);
+        }
+        p.reference.caption_analysis = analysis;
+        if (analysis.status !== 'detected' || !analysis.style)
+          throw new Error('Caption detection failed. No preset was substituted. ' + analysis.notes);
+        checkAbort(controller.signal);
+        if (initial.reference) initial.reference.autoMatchAttempted = true;
+        await put('undo', id, initial);
+        p.reference.mode = 'caption-measured';
+        p.reference.baselineVersion = 2;
+        p.reference.autoMatchAttempted = true;
+        p.reference.matchError = undefined;
+        p.style.captions = { present: true, style: structuredClone(analysis.style) };
+        for (const r of p.reels) {
+          r.editing = {
+            ...r.editing,
+            captions: { enabled: true, style: structuredClone(analysis.style) },
+          };
+          r.effective_style = {
+            ...r.effective_style,
+            captions: { present: true, style: structuredClone(analysis.style) },
+          };
+        }
+        p.generation++;
+        p.revision++;
+        invalidate(p);
+        history(
+          p,
+          'Reference captions copied as the baseline on every reel. Presets and prior caption-style overrides replaced; cut timing and caption wording retained.',
+        );
+        operation = 'storyboard';
+      }
       if (operation === 'storyboard') {
         let hits = 0,
           frames = 0;
@@ -183,6 +234,8 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
         await put('undo', id + ':previews', cached);
         history(p, 'Storyboard ready. Full encoding awaits your approval.');
       } else if (operation === 'render') {
+        if (p.reference && p.reference.mode !== 'caption-measured')
+          throw new Error('Reference caption matching is required before rendering.');
         if (
           p.approvedKey !== (await signature(p)) ||
           p.previewKey !== p.approvedKey ||
@@ -245,6 +298,10 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
       tasks.set(task, { status: 'succeeded', result: { id } });
     } catch (error) {
       const cancelled = controller.signal.aborted;
+      if (operation === 'reference' && p.reference)
+        p.reference.matchError = cancelled
+          ? 'Reference matching was cancelled.'
+          : (error as Error).message;
       p.busy = false;
       p.browserProgress = '';
       p.approvedKey = undefined;
@@ -352,7 +409,7 @@ async function create(data: Record<string, any>) {
   const reference = data.sample ? await asset(data.sample) : undefined;
   if (reference && (reference.role !== 'sample' || !reference.width || !reference.height))
     throw new Error('Choose a video uploaded as a reference reel.');
-  if (reference && data.reference_captions !== false && reference.caption_analysis?.version !== 1) {
+  if (reference && reference.caption_analysis?.version !== 2) {
     const url = await blobURL(reference.id, reference.blob),
       video = await loadVideo(url);
     try {
@@ -363,6 +420,13 @@ async function create(data: Record<string, any>) {
     }
     await put('assets', reference.id, reference);
   }
+  if (
+    reference &&
+    (reference.caption_analysis?.status !== 'detected' || !reference.caption_analysis.style)
+  )
+    throw new Error(
+      'Reference caption detection did not succeed. No preset was substituted. Choose a clearer captioned reference, or remove it to use a preset.',
+    );
   if (data.music && (await asset(data.music)).role !== 'music')
     throw new Error('Choose an audio file uploaded as background music.');
   const total = files.reduce((n, f) => n + f.duration, 0),
@@ -395,11 +459,9 @@ async function create(data: Record<string, any>) {
           id: reference.id,
           name: reference.name,
           notes: String(data.reference_notes || '').slice(0, 6000),
-          mode:
-            data.reference_captions !== false && reference.caption_analysis?.status === 'detected'
-              ? 'caption-measured'
-              : 'manual',
+          mode: reference.caption_analysis?.status === 'detected' ? 'caption-measured' : 'manual',
           caption_analysis: reference.caption_analysis,
+          baselineVersion: 2,
         }
       : undefined,
     error: null,
@@ -414,11 +476,7 @@ async function create(data: Record<string, any>) {
     case: data.preset === 'bold' ? 'upper' : 'normal',
     anim: { in: 'none' },
   };
-  if (
-    data.reference_captions !== false &&
-    reference?.caption_analysis?.status === 'detected' &&
-    reference.caption_analysis.style
-  )
+  if (reference?.caption_analysis?.status === 'detected' && reference.caption_analysis.style)
     p.style.captions!.style = structuredClone(reference.caption_analysis.style);
   const script = String(data.caption_script || '')
     .split(/\n+/)
@@ -557,8 +615,48 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
     result = await locked('new-project', () => create(data));
   else if (parts[0] === 'projects' && parts[1]) {
     const id = parts[1];
-    if (parts.length === 2 && method === 'GET') result = await hydrate(await project(id));
-    else
+    if (parts.length === 2 && method === 'GET') {
+      const existing = await project(id);
+      if (
+        existing.reference?.mode === 'manual' &&
+        !existing.reference.autoMatchAttempted &&
+        !existing.terminal &&
+        !existing.busy &&
+        !running.size
+      ) {
+        const repair = async () => {
+          const latest = await project(id);
+          if (
+            latest.reference?.mode !== 'manual' ||
+            latest.reference.autoMatchAttempted ||
+            latest.busy ||
+            latest.terminal ||
+            running.size
+          )
+            return;
+          latest.reference.autoMatchAttempted = true;
+          await put('projects', id, latest);
+          try {
+            await launch(id, 'reference');
+          } catch (error) {
+            if ((error as Error).message.startsWith('Another local job is running')) {
+              latest.reference.autoMatchAttempted = false;
+              await put('projects', id, latest);
+            } else throw error;
+          }
+        };
+        if (navigator.locks)
+          await navigator.locks.request(
+            'reel-studio:' + id,
+            { ifAvailable: true },
+            async (lock) => {
+              if (lock) await repair();
+            },
+          );
+        else await repair();
+      }
+      result = await hydrate(await project(id));
+    } else
       result = await locked(id, async () => {
         const p = await project(id),
           action = parts[2];
@@ -601,6 +699,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           return { ok: true };
         }
         if (action === 'approve') {
+          if (p.reference && p.reference.mode !== 'caption-measured')
+            throw new Error(
+              'Reference captions have not been copied. Match the reference before approving; a default preset cannot replace it.',
+            );
           if (
             p.busy ||
             !p.browserReady ||
@@ -719,40 +821,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
         }
         if (action === 'reference-captions') {
           current(p, data);
-          if (!p.reference)
-            throw new Error('Choose a reference reel when creating your project first.');
-          const a = await asset(p.reference.id);
-          let analysis = a.caption_analysis;
-          if (analysis?.version !== 1) {
-            const url = await blobURL(a.id, a.blob),
-              video = await loadVideo(url);
-            try {
-              const { analyzeBoxedReference } = await import('./referenceStyle');
-              analysis = await analyzeBoxedReference(video);
-            } finally {
-              releaseVideo(video);
-            }
-            a.caption_analysis = analysis;
-            await put('assets', a.id, a);
-          }
-          if (analysis.status !== 'detected' || !analysis.style) throw new Error(analysis.notes);
-          await put('undo', id, p);
-          p.reference.caption_analysis = analysis;
-          p.reference.mode = 'caption-measured';
-          p.style.captions = { present: true, style: analysis.style };
-          for (const r of p.reels)
-            r.editing = merge(r.editing || {}, {
-              captions: { enabled: true, style: analysis.style },
-            });
-          p.generation++;
-          p.revision++;
-          invalidate(p);
-          history(
-            p,
-            'Reference caption colour, boxes, size and position measured from a short sample; storyboard approval required.',
-          );
+          if (!p.reference) throw new Error('Choose a reference reel first.');
+          p.reference.autoMatchAttempted = true;
           await put('projects', id, p);
-          return launch(id, 'storyboard');
+          return launch(id, 'reference');
         }
         if (action === 'music') {
           current(p, data);
@@ -782,7 +854,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           if (p.terminal) throw new Error('Duplicate this completed project first.');
           invalidate(p);
           await put('projects', id, p);
-          return launch(id, 'storyboard');
+          return launch(id, p.reference?.mode === 'manual' ? 'reference' : 'storyboard');
         }
         if (action === 'transcribe') {
           current(p, data);
@@ -895,7 +967,7 @@ export async function upload(
       const { analyzeBoxedReference } = await import('./referenceStyle');
       const cached = await get<LocalAsset>('assets', id);
       record.caption_analysis =
-        cached?.caption_analysis?.version === 1
+        cached?.caption_analysis?.version === 2
           ? cached.caption_analysis
           : await analyzeBoxedReference(video, signal, progress);
     }

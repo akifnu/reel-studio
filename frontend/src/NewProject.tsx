@@ -15,6 +15,7 @@ import { api, upload, waitTask } from './api';
 import type { Upload } from './types';
 import { bytes } from './utils';
 import { browserMode } from './features';
+import CaptionStylePreview from './CaptionStylePreview';
 
 type Props = { onClose: () => void; onCreated: (id: string, task: string) => void };
 
@@ -37,7 +38,6 @@ export default function NewProject({ onClose, onCreated }: Props) {
     dialog = useRef<HTMLDialogElement>(null);
   const [captionScript, setCaptionScript] = useState('');
   const [referenceNotes, setReferenceNotes] = useState('');
-  const [useReferenceCaptions, setUseReferenceCaptions] = useState(true);
   useEffect(() => {
     dialog.current?.showModal();
     void api<Upload[]>('/uploads')
@@ -60,7 +60,6 @@ export default function NewProject({ onClose, onCreated }: Props) {
         }
         if (role === 'sample') {
           setSample(record);
-          setUseReferenceCaptions(true);
         }
         if (role === 'music') setMusic(record);
       }
@@ -100,9 +99,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
         duration,
         lang,
         notes,
-        ...(browserMode
-          ? { caption_script: captionScript, reference_captions: useReferenceCaptions }
-          : {}),
+        ...(browserMode ? { caption_script: captionScript } : {}),
       });
       onCreated(result.id, result.task_id);
     } catch (e) {
@@ -211,16 +208,11 @@ export default function NewProject({ onClose, onCreated }: Props) {
           <div className="caption-match-note" role="status">
             {sample.caption_analysis.status === 'detected' ? (
               <>
-                <label>
-                  <input
-                    type="checkbox"
-                    aria-label="Use measured caption style"
-                    checked={useReferenceCaptions}
-                    disabled={!!busy}
-                    onChange={(e) => setUseReferenceCaptions(e.target.checked)}
-                  />
-                  Use measured caption style
-                </label>
+                <strong>Reference caption style detected — applied automatically</strong>
+                <p>
+                  Presets cannot replace it during setup. Fine-tune only after seeing your
+                  storyboard.
+                </p>
                 <p>
                   {sample.caption_analysis.matches}/{sample.caption_analysis.frames} frames matched
                   · {sample.caption_analysis.window_seconds?.toFixed(1)}s window ·{' '}
@@ -228,9 +220,17 @@ export default function NewProject({ onClose, onCreated }: Props) {
                   {sample.caption_analysis.style?.box?.color}
                 </p>
                 <p>{sample.caption_analysis.notes}</p>
+                <CaptionStylePreview
+                  analysis={sample.caption_analysis}
+                  style={sample.caption_analysis.style}
+                  label="Automatically copied caption style"
+                />
               </>
             ) : (
-              <p>{sample.caption_analysis.notes}</p>
+              <p role="alert">
+                {sample.caption_analysis.notes} Detection failed. Remove the reference to use a
+                preset, or choose a clearer captioned reference.
+              </p>
             )}
           </div>
         )}
@@ -403,42 +403,30 @@ export default function NewProject({ onClose, onCreated }: Props) {
           </div>
         </details>
       )}
-      <section className="ingestion-section">
-        <h4>
-          {sample
-            ? browserMode
-              ? 'Starting caption preset — adjust to match your reference'
-              : 'Fallback caption preset'
-            : 'No reference? Start with a caption preset'}
-        </h4>
-        <div className="preset-grid">
-          {[
-            ['clean', 'Aa', 'Clean', 'Clear & considered'],
-            ['bold', 'AA', 'Bold', 'Make a statement'],
-            ['minimal', 'Aa', 'Minimal', 'Less, beautifully'],
-          ].map(([id, aa, title, sub]) => (
-            <button
-              key={id}
-              disabled={!!busy}
-              className={`preset ${preset === id && !(browserMode && sample?.caption_analysis?.status === 'detected' && useReferenceCaptions) ? 'selected' : ''} ${id}`}
-              onClick={() => {
-                setPreset(id);
-                setUseReferenceCaptions(false);
-              }}
-            >
-              <span>{aa}</span>
-              <strong>{title}</strong>
-              <small>{sub}</small>
-              {preset === id &&
-                !(
-                  browserMode &&
-                  sample?.caption_analysis?.status === 'detected' &&
-                  useReferenceCaptions
-                ) && <Check size={13} />}
-            </button>
-          ))}
-        </div>
-      </section>
+      {!sample && (
+        <section className="ingestion-section">
+          <h4>No reference? Start with a caption preset</h4>
+          <div className="preset-grid">
+            {[
+              ['clean', 'Aa', 'Clean', 'Clear & considered'],
+              ['bold', 'AA', 'Bold', 'Make a statement'],
+              ['minimal', 'Aa', 'Minimal', 'Less, beautifully'],
+            ].map(([id, aa, title, sub]) => (
+              <button
+                key={id}
+                disabled={!!busy}
+                className={`preset ${preset === id ? 'selected' : ''} ${id}`}
+                onClick={() => setPreset(id)}
+              >
+                <span>{aa}</span>
+                <strong>{title}</strong>
+                <small>{sub}</small>
+                {preset === id && <Check size={13} />}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       <div className="extra-uploads">
         <label className={music ? 'added' : ''}>
           <Music2 size={17} />
@@ -566,7 +554,14 @@ export default function NewProject({ onClose, onCreated }: Props) {
         </p>
         <button
           className="button orange"
-          disabled={!!busy || !sources.length || !name.trim() || count < 1 || count > 50}
+          disabled={
+            !!busy ||
+            !sources.length ||
+            !name.trim() ||
+            count < 1 ||
+            count > 50 ||
+            (browserMode && sample?.caption_analysis?.status === 'unsupported')
+          }
           onClick={() => void create()}
         >
           Create storyboard

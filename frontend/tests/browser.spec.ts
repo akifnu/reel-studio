@@ -100,15 +100,20 @@ async function ready(page: any) {
 async function localProject(page: any) {
   await page.getByRole('button', { name: 'New project', exact: true }).click();
   const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: /AA Bold/ }).click();
   await dialog
     .getByLabel('Reference reel', { exact: true })
-    .setInputFiles(join(fixtures, 'reference.mp4'));
+    .setInputFiles(join(fixtures, 'boxed-reference.mp4'));
   await expect(dialog.getByLabel('Reference reel preview', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create storyboard', exact: true })).toBeDisabled();
   await dialog
     .getByLabel('Reference style notes', { exact: true })
     .fill('Quick pacing, bold captions, a question hook.');
-  await dialog.getByRole('button', { name: /AA Bold/ }).click();
+  await expect(dialog.locator('.preset-grid')).toHaveCount(0);
+  await expect(dialog.getByLabel('Use measured caption style', { exact: true })).toHaveCount(0);
+  await expect(
+    dialog.getByText('Reference caption style detected — applied automatically', { exact: true }),
+  ).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
   await dialog
     .getByLabel('Raw footage', { exact: true })
@@ -178,7 +183,7 @@ test('local upload → real GIF → explicit approval → caption/audio MP4 → 
   await reference.evaluate((v: HTMLVideoElement) => v.load());
   await expect
     .poll(() => reference.evaluate((v: HTMLVideoElement) => [v.videoWidth, v.videoHeight]))
-    .toEqual([320, 568]);
+    .toEqual([720, 1280]);
   await page.getByLabel('Opening hook', { exact: true }).fill('Made on this device');
   await page.getByRole('tab', { name: 'Framing', exact: true }).click();
   await page.getByLabel('Segment 1 start', { exact: true }).fill('0.5');
@@ -236,12 +241,8 @@ test('local upload → real GIF → explicit approval → caption/audio MP4 → 
     'rgb24',
     'pipe:1',
   ]);
-  // The reference is solid magenta. Raw footage has a coloured test pattern.
-  expect(
-    Array.from(pixels)
-      .filter((_, i) => i % 3 === 1)
-      .some((g) => g > 100),
-  ).toBeTruthy();
+  expect(Math.min(...pixels)).toBeLessThan(80);
+  expect(Math.max(...pixels)).toBeGreaterThan(150);
   await page.getByRole('button', { name: 'Edit in CapCut', exact: true }).click();
   const desktopDownload = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Download desktop draft ZIP', exact: true }).click();
@@ -399,15 +400,16 @@ test('the same file can be explicitly uploaded into both roles without overwriti
   const dialog = page.getByRole('dialog');
   await dialog
     .getByLabel('Reference reel', { exact: true })
-    .setInputFiles(join(fixtures, 'source.mp4'));
+    .setInputFiles(join(fixtures, 'boxed-reference.mp4'));
   await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
   await expect(
     dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
   ).toBeDisabled();
   await dialog
     .getByLabel('Raw footage', { exact: true })
-    .setInputFiles(join(fixtures, 'source.mp4'));
+    .setInputFiles(join(fixtures, 'boxed-reference.mp4'));
   await dialog.getByLabel('Project name', { exact: true }).fill('Explicit roles');
+  await dialog.getByLabel('Caption script', { exact: true }).fill('Keep the input roles distinct.');
   await dialog.getByRole('button', { name: 'Create storyboard', exact: true }).click();
   await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
     timeout: 60000,
@@ -422,7 +424,7 @@ test('the same file can be explicitly uploaded into both roles without overwriti
       r.onsuccess = () =>
         resolve(
           r.result
-            .filter((a) => a.name === 'source.mp4')
+            .filter((a) => a.name === 'boxed-reference.mp4')
             .map((a) => a.role)
             .sort(),
         );
@@ -437,7 +439,7 @@ test('the same file can be explicitly uploaded into both roles without overwriti
   await expect(
     dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
   ).toBeDisabled();
-  await ref.getByRole('button', { name: 'Delete stored source.mp4', exact: true }).click();
+  await ref.getByRole('button', { name: 'Delete stored boxed-reference.mp4', exact: true }).click();
   await expect(dialog.getByRole('alert')).toContainText('still used by a project');
 });
 
@@ -453,9 +455,11 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
   await page
     .getByLabel('Reference reel', { exact: true })
     .setInputFiles(join(fixtures, 'boxed-reference.mp4'));
-  await expect(page.getByLabel('Use measured caption style', { exact: true })).toBeChecked({
-    timeout: 30000,
-  });
+  await expect(
+    page.getByText('Reference caption style detected — applied automatically', { exact: true }),
+  ).toBeVisible({ timeout: 30000 });
+  await expect(page.getByLabel('Use measured caption style', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.preset-grid')).toHaveCount(0);
   await page
     .getByLabel('Raw footage', { exact: true })
     .setInputFiles(join(fixtures, 'white-raw.mp4'));
@@ -517,6 +521,54 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
   expect(measured.style.size).toBeLessThan(60);
   expect(measured.captions.map((c: any) => c.text)).toEqual(['These words belong to raw footage']);
   expect(engineRequests).toBe(0);
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const r = indexedDB.open('reel-studio-local-v1');
+      r.onsuccess = () => resolve(r.result);
+    });
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction('projects', 'readwrite'),
+        store = tx.objectStore('projects'),
+        r = store.getAll();
+      r.onsuccess = () => {
+        const p = r.result.find((p) => p.name === 'Measured caption style');
+        p.reference.mode = 'manual';
+        delete p.reference.baselineVersion;
+        delete p.reference.autoMatchAttempted;
+        p.style.captions.style = { font: 'Manrope', weight: 700, size: 56, fill: '#ffe600' };
+        for (const reel of p.reels) {
+          reel.editing.captions.style = structuredClone(p.style.captions.style);
+          reel.effective_style.captions.style = structuredClone(p.style.captions.style);
+        }
+        store.put(p, p.id);
+      };
+      tx.oncomplete = () => resolve();
+    });
+  });
+  await page.reload();
+  await expect(
+    page.getByRole('region', { name: 'Reference caption status', exact: true }),
+  ).toContainText('Reference caption style copied to your reels', { timeout: 30000 });
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  await expect(page.getByLabel('Caption font', { exact: true })).toHaveValue('Arial');
+  await expect(page.getByLabel('Caption weight', { exact: true })).toHaveValue('400');
+  await expect(page.getByLabel('Caption box colour', { exact: true })).not.toHaveValue('#ffe600');
+  await expect(page.getByAltText('Caption cropped from your reference')).toBeVisible();
+  await expect(page.getByAltText('Measured style rendered on sample wording')).toBeVisible();
+  await page.getByLabel('Caption colour #f9a8d4', { exact: true }).click();
+  await page.getByRole('button', { name: 'Update storyboard', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  await page.reload();
+  await expect(page.getByLabel('Custom caption colour', { exact: true })).toHaveValue('#f9a8d4');
+  await page.getByLabel('Caption colour #ffffff', { exact: true }).click();
+  await page.getByRole('button', { name: 'Update storyboard', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
   await page.getByRole('button', { name: 'Approve & render', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Accept passing renders', exact: true }),
@@ -549,4 +601,30 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
   for (let i = 0; i < rgb.length; i += 3)
     if (rgb[i + 1] > rgb[i] + 30 && rgb[i + 1] > rgb[i + 2] + 30) green++;
   expect(green).toBeGreaterThan(1000);
+});
+
+test('failed caption detection stops setup instead of silently using a preset', async ({
+  page,
+}) => {
+  await ready(page);
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByRole('button', { name: /AA Bold/ }).click();
+  await dialog
+    .getByLabel('Reference reel', { exact: true })
+    .setInputFiles(join(fixtures, 'reference.mp4'));
+  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
+  await dialog
+    .getByLabel('Raw footage', { exact: true })
+    .setInputFiles(join(fixtures, 'source.mp4'));
+  await expect(dialog.getByRole('alert')).toContainText('Detection failed');
+  await expect(dialog.locator('.preset-grid')).toHaveCount(0);
+  await expect(
+    dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
+  ).toBeDisabled();
+  await dialog.getByRole('button', { name: 'Remove reference', exact: true }).click();
+  await expect(dialog.locator('.preset-grid')).toBeVisible();
+  await expect(
+    dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
+  ).toBeEnabled();
 });

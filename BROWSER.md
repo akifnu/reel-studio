@@ -11,12 +11,18 @@ required. The server edition remains available in this repository.
    analysis width of 360 pixels. For solid-colour boxes with white text it measures
    the box colour, text size, placement and line layout, then applies rounded
    per-line boxes to the raw footage's captions. The result is cached by file hash.
-   Review the detected style in the form; choosing a preset overrides it without
-   removing the reference. Unsupported styles are reported instead of guessed.
+   Reference style is applied automatically as the initial caption style on every
+   reel. Setup presets are hidden while a reference is selected; an old
+   `reference_captions=false` value cannot switch matching off. Detection failure
+   blocks creation instead of substituting a preset. Remove the reference if you
+   intentionally want a preset. Edit captions only after seeing the copied style.
    Exact font identity/weight and animation cannot be inferred reliably here;
    Arial Regular is an approximation. Pacing, hook wording and video colour grading
    remain manual. **Project inputs → Match reference captions on all reels** can
-   measure older references and rebuild the storyboard, requiring approval again.
+   retry detection and rebuild the storyboard, requiring approval again. Older
+   unfinished projects that accidentally used a preset are repaired automatically
+   once, with an undo snapshot and fresh storyboard approval. Subsequent explicit
+   caption edits are preserved; completed exports are kept.
    Reference picture, speech and music never enter the output.
 2. Optionally enter a caption script (one line per caption). These timings are
    evenly spaced, not speech measurements. Blank input produces no invented speech.
@@ -119,3 +125,10 @@ Desktop draft schema references: [pyCapCut](https://github.com/GuanYixuan/pyCapC
 and [CapCut's project import limitations](https://www.capcut.com/help/import-a-previous-project-into-the-current-project).
 These exports run in the free browser edition; the server edition retains its
 existing MP4 export.
+
+Reference caption status and a visual comparison are shown above the editor: the
+observed caption crop and a sample rendered through the same caption compositor
+used by the GIF and MP4. The sample wording is illustrative and never enters the
+reel. This makes copying visible before optional edits. Matching remains a measured
+reconstruction of supported boxed captions; exact font identity, font metrics and
+frame-by-frame animation cannot be guaranteed from the flattened video.

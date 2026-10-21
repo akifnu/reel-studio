@@ -22,6 +22,7 @@ export type TextStyle = {
   anim?: { in?: string; in_dur?: number };
 };
 export type CaptionAnalysis = {
+  preview?: { image: string; t: number };
   version?: number;
   window_seconds?: number;
   times?: number[];
@@ -142,6 +143,9 @@ export type Project = {
     notes: string;
     mode: 'manual' | 'analyzed' | 'caption-measured';
     caption_analysis?: CaptionAnalysis;
+    baselineVersion?: number;
+    matchError?: string;
+    autoMatchAttempted?: boolean;
   };
   sample_url: string | null;
   sample_review_url: string | null;

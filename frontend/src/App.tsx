@@ -32,6 +32,7 @@ import { merge, phase, time } from './utils';
 import NewProject from './NewProject';
 import ProjectInputs from './ProjectInputs';
 import CapCutExport from './CapCutExport';
+import CaptionStylePreview from './CaptionStylePreview';
 import Player from './Player';
 import Inspector from './Inspector';
 import { browserMode } from './features';
@@ -619,6 +620,68 @@ export default function App() {
                     : 'Demo workspace. Captions are illustrative examples, not a transcription of this footage. Create a project with your own media for a real edit.'}
                 </p>
               </div>
+            )}
+            {browserMode && project.reference && (
+              <section className="reference-caption-status" aria-label="Reference caption status">
+                <strong>
+                  {project.busy && project.reference.mode !== 'caption-measured'
+                    ? 'Detecting and copying your reference captions…'
+                    : project.reference.mode === 'caption-measured'
+                      ? 'Reference caption style copied to your reels'
+                      : 'Reference caption style has not been applied'}
+                </strong>
+                {project.reference.matchError && <p role="alert">{project.reference.matchError}</p>}
+                {project.terminal && project.reference.mode !== 'caption-measured' && (
+                  <p>
+                    Duplicate this completed project to copy the reference style. Your accepted
+                    export is kept.
+                  </p>
+                )}
+                {project.reference.mode === 'caption-measured' ? (
+                  <>
+                    <CaptionStylePreview
+                      analysis={project.reference.caption_analysis}
+                      label={`Saved caption style · ${selected?.id || 'reel'}`}
+                      style={{
+                        ...selected?.effective_style.captions?.style,
+                        ...selected?.editing?.captions?.style,
+                      }}
+                    />
+                    <p>
+                      Fine-tune captions below if needed. Changes require a new storyboard review.
+                    </p>
+                  </>
+                ) : (
+                  !project.busy &&
+                  !project.terminal && (
+                    <button
+                      className="button secondary"
+                      disabled={working || dirty}
+                      onClick={() =>
+                        void run(() =>
+                          api(`/projects/${project.id}/reference-captions`, 'POST', {
+                            generation: project.generation,
+                            revision: project.revision,
+                          }),
+                        )
+                      }
+                    >
+                      Retry reference caption detection
+                    </button>
+                  )
+                )}
+                {project.reference.mode === 'caption-measured' &&
+                  !project.reels.some(
+                    (r) =>
+                      r.caption_events.some((c) => c.text.trim()) ||
+                      r.text_events.some((c) => c.text.trim()),
+                  ) && (
+                    <p role="status">
+                      Style copied, but there is no caption wording yet. Use Auto captions for raw
+                      speech or add caption text in the editor.
+                    </p>
+                  )}
+              </section>
             )}
             <ProjectInputs
               project={project}
