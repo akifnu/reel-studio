@@ -38,4 +38,11 @@ describe('bounded reference caption measurement', () => {
     fill(80, 180, 170, 300, [0, 75, 6]);
     expect(boxedCaptionPixels(data, w, h)).toBeNull();
   });
+  it('does not mistake neutral screen panels reached through a coloured border for caption boxes', () => {
+    const { w, h, data, fill } = image();
+    fill(60, 335, 240, 35, [200, 185, 165]);
+    fill(62, 337, 236, 31, [194, 196, 188]);
+    for (let x = 74; x < 220; x += 7) fill(x, 345, 3, 14, [255, 255, 255]);
+    expect(boxedCaptionPixels(data, w, h)).toBeNull();
+  });
 });

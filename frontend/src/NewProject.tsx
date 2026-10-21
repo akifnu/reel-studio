@@ -201,7 +201,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
         )}
         <p className="field-hint reference-limit">
           {browserMode
-            ? 'Caption matching samples 12 frames from a 5-second section, locally. Solid-colour boxes with white text can be measured; pacing, video colour grading and hook wording stay manual.'
+            ? 'Reference analysis samples 24 frames from up to 5 seconds, locally. Colour tone and cut timing are measured. Local English OCR also reads captions without a box; the original font can be imported later. Hook wording stays yours.'
             : 'The server analyzes this reference separately. Review the measured style before it is applied to your raw footage.'}
         </p>
         {browserMode && sample?.caption_analysis && (
@@ -216,8 +216,10 @@ export default function NewProject({ onClose, onCreated }: Props) {
                 <p>
                   {sample.caption_analysis.matches}/{sample.caption_analysis.frames} frames matched
                   · {sample.caption_analysis.window_seconds?.toFixed(1)}s window ·{' '}
-                  {sample.caption_analysis.style?.size}px text · box{' '}
-                  {sample.caption_analysis.style?.box?.color}
+                  {sample.caption_analysis.style?.size}px text ·{' '}
+                  {sample.caption_analysis.style?.box?.color
+                    ? 'boxed captions'
+                    : 'captions without a box'}
                 </p>
                 <p>{sample.caption_analysis.notes}</p>
                 <CaptionStylePreview
@@ -228,11 +230,21 @@ export default function NewProject({ onClose, onCreated }: Props) {
               </>
             ) : (
               <p role="alert">
-                {sample.caption_analysis.notes} Detection failed. Remove the reference to use a
-                preset, or choose a clearer captioned reference.
+                {sample.caption_analysis.notes} Colour and pacing will still apply. Captions stay
+                off until you choose their style; no preset is substituted.
               </p>
             )}
           </div>
+        )}
+        {sample?.caption_analysis?.pacing && (
+          <p className="field-hint">
+            Reference timing: {sample.caption_analysis.pacing.cuts.length} detected cuts ·{' '}
+            {sample.caption_analysis.pacing.confidence === 'measured'
+              ? `${sample.caption_analysis.pacing.median_shot.toFixed(2)}s median shot. Speech follows complete sentences; reframe cuts preserve footage without a transcript.`
+              : 'No clear cuts; source timing will be kept.'}{' '}
+            Colour tone:{' '}
+            {sample.caption_analysis.look ? 'measured and applied automatically' : 'not measured'}.
+          </p>
         )}
         {sample && (
           <label className="field">
@@ -554,14 +566,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
         </p>
         <button
           className="button orange"
-          disabled={
-            !!busy ||
-            !sources.length ||
-            !name.trim() ||
-            count < 1 ||
-            count > 50 ||
-            (browserMode && sample?.caption_analysis?.status === 'unsupported')
-          }
+          disabled={!!busy || !sources.length || !name.trim() || count < 1 || count > 50}
           onClick={() => void create()}
         >
           Create storyboard

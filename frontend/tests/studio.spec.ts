@@ -50,18 +50,21 @@ test('real review page: edits stay local, comments persist, proposals need an ap
   await page.getByLabel('Timestamped comment', { exact: true }).fill('Keep this opening moment.');
   await page.locator('.comment-compose button').click();
   await expect(page.getByText('Keep this opening moment.', { exact: true })).toBeVisible();
-  await page.getByRole('tab', { name: 'Ask', exact: true }).click();
-  await page.getByLabel('Edit instruction', { exact: true }).fill('Zoom to 1.15 and mute music');
-  await page.getByRole('button', { name: 'Suggest changes', exact: true }).click();
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+  await page
+    .getByLabel('Message editing assistant', { exact: true })
+    .fill('Zoom to 1.15 and mute music');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
   await expect(page.getByText('crop · zoom: 1.15', { exact: true })).toBeVisible({
     timeout: 10000,
   });
   const proposed = await (await page.request.get(`/api/projects/${id}`)).json();
   expect(proposed.generation).toBe(updated.generation);
   expect(proposed.needs.step).toBe('approve_storyboard');
-  await page.getByRole('button', { name: 'Use these changes', exact: true }).click();
-  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Update storyboard', exact: true }).click();
+  await page.getByRole('button', { name: 'Apply & update storyboard', exact: true }).click();
+  await expect
+    .poll(async () => (await (await page.request.get(`/api/projects/${id}`)).json()).generation)
+    .toBe(updated.generation + 1);
   await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
     timeout: 30000,
   });

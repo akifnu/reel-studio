@@ -40,6 +40,22 @@ describe('browser composition contracts', () => {
     expect(r.caption_events).toEqual([]);
     expect(r.speech).toBe('');
   });
+  it('keeps caption timing continuous across fast reframe cuts instead of repeating the sentence', () => {
+    const p = fixture(),
+      r = p.reels[0];
+    p.sources.A.duration = 4;
+    p.transcripts.A.sentences = [{ id: 0, s: 0, e: 4, text: 'one two three four', w0: 0, w1: 4 }];
+    r.caption_text = {};
+    r.editing = { captions: { style: { words_per_caption: 2 } } };
+    r.segments = Array.from({ length: 8 }, (_, i) => ({ src: 'A', s: i / 2, e: (i + 1) / 2 }));
+    compile(p, r);
+    expect(r.caption_events).toEqual([
+      { s: 0, e: 2, text: 'one two' },
+      { s: 2, e: 4, text: 'three four' },
+    ]);
+    expect(r.duration).toBe(4);
+    expect(r.speech).toBe('one two three four');
+  });
   it('fills the output at crop extremes without exposing empty borders', () => {
     const p = fixture(),
       r = p.reels[0];

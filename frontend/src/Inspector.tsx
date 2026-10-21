@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import EditingChat from './EditingChat';
 import {
   Type,
   Crop,
@@ -12,11 +13,9 @@ import {
   ArrowDown,
   Trash2,
   Plus,
-  Loader2,
 } from 'lucide-react';
-import type { Changes, Config, Project, Proposal, Reel, Segment } from './types';
-import { api } from './api';
-import { controlSummary, time } from './utils';
+import type { Changes, Config, Project, Reel, Segment } from './types';
+import { time } from './utils';
 import { browserMode } from './features';
 
 type Props = {
@@ -30,7 +29,7 @@ type Props = {
   onChange: (x: Changes) => void;
   onApply: () => void;
   onDiscard: () => void;
-  onProposal: (changes: Changes) => void;
+  onChatApply: (changes: Changes) => Promise<void>;
   onError: (s: string) => void;
   onMusic: (file: File) => void;
 };
@@ -104,15 +103,14 @@ function Toggle({
 
 export default function Inspector(p: Props) {
   const { project, reel, patch, disabled, tab, setTab, onChange } = p;
-  const [instruction, setInstruction] = useState(''),
-    [proposal, setProposal] = useState<Proposal | null>(null),
-    [asking, setAsking] = useState(false);
+  const [fontBusy, setFontBusy] = useState(false);
   const edit = {
     captions: { ...reel.editing?.captions, ...patch.editing?.captions },
     crop: { ...reel.editing?.crop, ...patch.editing?.crop },
     music: { ...reel.editing?.music, ...patch.editing?.music },
     sfx: { ...reel.editing?.sfx, ...patch.editing?.sfx },
     motion: { ...reel.editing?.motion, ...patch.editing?.motion },
+    colour: { ...reel.editing?.colour, ...patch.editing?.colour },
   };
   const style = {
     ...reel.effective_style.captions?.style,
@@ -136,24 +134,6 @@ export default function Inspector(p: Props) {
     ),
   );
   const colors = ['#ffffff', '#ffe600', '#a3e635', '#60a5fa', '#f9a8d4', '#fb923c'];
-  async function ask() {
-    if (!instruction.trim()) return;
-    setAsking(true);
-    setProposal(null);
-    try {
-      setProposal(
-        await api<Proposal>(`/projects/${project.id}/propose`, 'POST', {
-          reel_id: reel.id,
-          generation: project.generation,
-          text: instruction,
-        }),
-      );
-    } catch (e) {
-      p.onError((e as Error).message);
-    } finally {
-      setAsking(false);
-    }
-  }
   function reorder(i: number, delta: number) {
     const list = segments.map((x) => ({ ...x }));
     [list[i], list[i + delta]] = [list[i + delta], list[i]];
@@ -173,7 +153,7 @@ export default function Inspector(p: Props) {
           ['captions', Type, 'Captions'],
           ['framing', Crop, 'Framing'],
           ['audio', AudioLines, 'Audio'],
-          ['ask', Sparkles, 'Ask'],
+          ['ask', MessageSquare, 'Chat'],
         ].map(([id, Icon, label]) => {
           const I = Icon as typeof Type;
           return (
@@ -212,20 +192,54 @@ export default function Inspector(p: Props) {
                 value={style.font || 'Arimo'}
                 onChange={(e) => cap({ font: e.target.value })}
               >
-                {(
-                  p.config?.fonts || [
-                    'Arimo',
-                    'Montserrat',
-                    'Anton',
-                    'Oswald',
-                    'Roboto',
-                    'Bebas Neue',
-                  ]
+                {Array.from(
+                  new Set([
+                    style.font || 'Arial',
+                    ...(p.config?.fonts || [
+                      'Arimo',
+                      'Montserrat',
+                      'Anton',
+                      'Oswald',
+                      'Roboto',
+                      'Bebas Neue',
+                    ]),
+                  ]),
                 ).map((f) => (
                   <option key={f}>{f}</option>
                 ))}
               </select>
             </label>
+            {browserMode && (
+              <label className="button secondary full">
+                {fontBusy ? 'Loading font…' : 'Import original font'}
+                <input
+                  type="file"
+                  aria-label="Import caption font"
+                  accept=".ttf,.otf,.woff,.woff2"
+                  disabled={disabled || fontBusy}
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = '';
+                    if (!file) return;
+                    setFontBusy(true);
+                    try {
+                      const { importFont } = await import('./browser/fonts');
+                      cap({ font: await importFont(file), weight: 400 });
+                    } catch (error) {
+                      p.onError((error as Error).message);
+                    } finally {
+                      setFontBusy(false);
+                    }
+                  }}
+                />
+              </label>
+            )}
+            {browserMode && (
+              <p className="field-hint">
+                Detection works independently of this font list. Import a font file to use the exact
+                original face; it stays in this browser.
+              </p>
+            )}
             <div className="field-pair">
               <label className="field">
                 Weight
@@ -410,6 +424,60 @@ export default function Inspector(p: Props) {
         )}
         {tab === 'framing' && (
           <>
+            {browserMode && (
+              <section className="colour-controls">
+                <h3>Colour tone</h3>
+                <Slider
+                  label="Reference colour strength"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={edit.colour.strength ?? 0}
+                  disabled={disabled}
+                  onChange={(strength) =>
+                    onChange({
+                      editing: {
+                        colour: {
+                          gain: [1, 1, 1],
+                          offset: [0, 0, 0],
+                          saturation: 1,
+                          ...reel.editing?.colour,
+                          ...patch.editing?.colour,
+                          strength,
+                        },
+                      },
+                    })
+                  }
+                />
+                <Slider
+                  label="Saturation"
+                  min={0}
+                  max={2}
+                  step={0.05}
+                  value={edit.colour.saturation ?? 1}
+                  disabled={disabled}
+                  onChange={(saturation) =>
+                    onChange({
+                      editing: {
+                        colour: {
+                          gain: [1, 1, 1],
+                          offset: [0, 0, 0],
+                          ...reel.editing?.colour,
+                          ...patch.editing?.colour,
+                          saturation,
+                          strength: 1,
+                        },
+                      },
+                    })
+                  }
+                />
+                <p className="field-hint">
+                  Measured tone appears in the Source preview, storyboard, GIF and final MP4. Use
+                  Chat for warmer, cooler or brighter adjustments.
+                </p>
+              </section>
+            )}
+
             <div className="inspector-callout">
               <Crop size={20} />
               <p>Choose a crop, then drag the picture in Source preview to place your subject.</p>
@@ -684,72 +752,13 @@ export default function Inspector(p: Props) {
           </>
         )}
         {tab === 'ask' && (
-          <>
-            <div className="ask-heading">
-              <Sparkles size={23} />
-              <h3>Say it your way.</h3>
-              <p>Describe a change. Review the suggestion, then apply it to this reel.</p>
-            </div>
-            <label className="sr-only" htmlFor="instruction">
-              Edit instruction
-            </label>
-            <textarea
-              id="instruction"
-              className="instruction-input"
-              rows={5}
-              disabled={disabled || asking}
-              maxLength={4000}
-              placeholder={'“Yellow captions, zoom to 1.2 and mute music.”'}
-              value={instruction}
-              onChange={(e) => setInstruction(e.target.value)}
-            />
-            <button
-              className="button dark full"
-              disabled={disabled || asking || !instruction.trim()}
-              onClick={() => void ask()}
-            >
-              {asking ? <Loader2 size={16} className="spin" /> : <Sparkles size={16} />}Suggest
-              changes
-            </button>
-            <p className="field-hint">
-              {p.config?.ai_enabled
-                ? 'AI suggestions are enabled. Nothing changes until you apply.'
-                : 'Quick instructions work locally. Broader requests need an optional AI provider configured on the server.'}
-            </p>
-            {proposal && (
-              <div className="proposal">
-                <span className="eyebrow">PROPOSED EDIT</span>
-                <ul>
-                  {controlSummary(proposal.changes).map((x, i) => (
-                    <li key={i}>{x}</li>
-                  ))}
-                </ul>
-                <p>{proposal.explanation}</p>
-                <button
-                  className="button orange full"
-                  disabled={disabled || project.generation !== proposal.generation}
-                  onClick={() => {
-                    p.onProposal(proposal.changes);
-                    setProposal(null);
-                  }}
-                >
-                  <Check size={15} />
-                  Use these changes
-                </button>
-              </div>
-            )}
-            <div className="divider" />
-            <span className="eyebrow">TRY A QUICK EDIT</span>
-            <div className="prompt-chips">
-              {['White captions at the bottom', 'Zoom to 1.15', 'Mute music', 'Font size 64'].map(
-                (x) => (
-                  <button key={x} disabled={disabled} onClick={() => setInstruction(x)}>
-                    {x}
-                  </button>
-                ),
-              )}
-            </div>
-          </>
+          <EditingChat
+            project={project}
+            reel={reel}
+            disabled={disabled}
+            draft={patch}
+            onApply={p.onChatApply}
+          />
         )}
       </div>
       <div className={`inspector-footer ${dirty ? 'dirty' : ''}`}>

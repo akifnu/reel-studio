@@ -1,4 +1,4 @@
-import type { Changes, Project, Proposal, Upload } from '../types';
+import type { CaptionAnalysis, Changes, Project, Proposal, Upload } from '../types';
 import { merge } from '../utils';
 import {
   all,
@@ -18,12 +18,17 @@ import {
 import type { LocalAsset, LocalProject } from './store';
 import { board, checkAbort, compile, loadVideo, releaseVideo } from './compositor';
 import { outputBlob, render, stopEngine } from './engine';
+import { REFERENCE_VERSION } from './referenceStyle';
+import { averageLooks, matchColour, paceReel, sourceLook } from './referenceLook';
+import { editingReply } from './editingAssistant';
+import { loadCustomFonts, fontFamilies } from './fonts';
 const MAX_FILE = 100 * 1024 ** 2,
   MAX_TOTAL = 200 * 1024 ** 2;
 const tasks = new Map<string, { status: string; error?: string; result?: unknown }>();
 const running = new Map<string, AbortController>();
 let queue: Promise<unknown> = Promise.resolve();
 const ready = (async () => {
+  await loadCustomFonts();
   const projects = await all<LocalProject>('projects');
   const locks = navigator.locks ? await navigator.locks.query() : null;
   const activeElsewhere = locks?.held?.some((l) => l.name === 'reel-studio-media-engine');
@@ -138,7 +143,7 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
         if (!p.reference) throw new Error('A reference reel is required.');
         const a = await asset(p.reference.id);
         let analysis = a.caption_analysis;
-        if (analysis?.version !== 2) {
+        if (analysis?.version !== REFERENCE_VERSION) {
           const video = await loadVideo(await blobURL(a.id, a.blob), controller.signal);
           try {
             const { analyzeBoxedReference } = await import('./referenceStyle');
@@ -152,32 +157,19 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
           await put('assets', a.id, a);
         }
         p.reference.caption_analysis = analysis;
-        if (analysis.status !== 'detected' || !analysis.style)
-          throw new Error('Caption detection failed. No preset was substituted. ' + analysis.notes);
         checkAbort(controller.signal);
-        if (initial.reference) initial.reference.autoMatchAttempted = true;
-        await put('undo', id, initial);
-        p.reference.mode = 'caption-measured';
-        p.reference.baselineVersion = 2;
-        p.reference.autoMatchAttempted = true;
-        p.reference.matchError = undefined;
-        p.style.captions = { present: true, style: structuredClone(analysis.style) };
-        for (const r of p.reels) {
-          r.editing = {
-            ...r.editing,
-            captions: { enabled: true, style: structuredClone(analysis.style) },
-          };
-          r.effective_style = {
-            ...r.effective_style,
-            captions: { present: true, style: structuredClone(analysis.style) },
-          };
+        if (initial.reference) {
+          initial.reference.autoMatchAttempted = true;
+          initial.reference.autoMatchVersion = REFERENCE_VERSION;
         }
+        await put('undo', id, initial);
+        await applyReference(p, analysis, controller.signal);
         p.generation++;
         p.revision++;
         invalidate(p);
         history(
           p,
-          'Reference captions copied as the baseline on every reel. Presets and prior caption-style overrides replaced; cut timing and caption wording retained.',
+          'Reference colour, pacing and detected captions applied. Review changed cut timing and source wording before approving.',
         );
         operation = 'storyboard';
       }
@@ -203,6 +195,8 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
               captions: r.editing?.captions,
               crop: r.editing?.crop,
               motion: r.editing?.motion,
+              colour: r.editing?.colour,
+              pacing: r.editing?.pacing,
             },
           });
           if (before[r.id]?.key === key) {
@@ -234,7 +228,7 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
         await put('undo', id + ':previews', cached);
         history(p, 'Storyboard ready. Full encoding awaits your approval.');
       } else if (operation === 'render') {
-        if (p.reference && p.reference.mode !== 'caption-measured')
+        if (p.reference && !referenceReady(p))
           throw new Error('Reference caption matching is required before rendering.');
         if (
           p.approvedKey !== (await signature(p)) ||
@@ -357,6 +351,9 @@ function validateChanges(changes: Changes) {
       throw new Error('Caption text must be under 1,000 characters.');
   const cfg = changes.editing;
   const bounds: [unknown, number, number][] = [
+    [cfg?.pacing?.target, 0.35, 5],
+    [cfg?.colour?.strength, 0, 1],
+    [cfg?.colour?.saturation, 0, 2],
     [cfg?.crop?.x, 0, 1],
     [cfg?.crop?.y, 0, 1],
     [cfg?.crop?.zoom, 1, 3],
@@ -380,8 +377,71 @@ function validateChanges(changes: Changes) {
       (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max)
     )
       throw new Error('An editing control is outside its supported range.');
-  if (changes.segments && (!changes.segments.length || changes.segments.length > 20))
-    throw new Error('Use 1–20 segments per reel.');
+  if (
+    cfg?.colour &&
+    (!Array.isArray(cfg.colour.gain) ||
+      cfg.colour.gain.length !== 3 ||
+      !Array.isArray(cfg.colour.offset) ||
+      cfg.colour.offset.length !== 3 ||
+      cfg.colour.gain.some((v) => !Number.isFinite(v) || v < 0.5 || v > 2) ||
+      cfg.colour.offset.some((v) => !Number.isFinite(v) || Math.abs(v) > 80))
+  )
+    throw new Error('Invalid colour correction.');
+  if (changes.segments && (!changes.segments.length || changes.segments.length > 120))
+    throw new Error('Use 1–120 segments per reel.');
+}
+function referenceReady(p: LocalProject) {
+  return (
+    p.reference && (p.reference.mode === 'caption-measured' || p.reference.mode === 'analyzed')
+  );
+}
+function wantsReferenceUpgrade(p: LocalProject) {
+  const r = p.reference;
+  if (!r || r.autoMatchVersion === REFERENCE_VERSION) return false;
+  if (r.mode === 'manual') return !r.autoMatchAttempted;
+  return (
+    (r.baselineVersion || 0) < REFERENCE_VERSION &&
+    !p.history.some((h) => h.description.startsWith('Edit saved'))
+  );
+}
+async function applyReference(p: LocalProject, analysis: CaptionAnalysis, signal?: AbortSignal) {
+  if (!p.reference) return;
+  const looks = [];
+  for (const source of Object.values(p.sources)) {
+    const a = await asset(source.id),
+      video = await loadVideo(await blobURL(a.id, a.blob), signal);
+    try {
+      looks.push(await sourceLook(video, signal));
+    } finally {
+      releaseVideo(video);
+    }
+  }
+  const source = averageLooks(looks),
+    grade = analysis.look ? matchColour(source, analysis.look) : undefined;
+  p.reference.source_look = source;
+  p.reference.matched_colour = grade;
+  p.reference.mode = analysis.status === 'detected' ? 'caption-measured' : 'analyzed';
+  p.reference.baselineVersion = REFERENCE_VERSION;
+  p.reference.autoMatchVersion = REFERENCE_VERSION;
+  p.reference.autoMatchAttempted = true;
+  p.reference.matchError = undefined;
+  p.style.captions = {
+    present: analysis.status === 'detected',
+    style: structuredClone(analysis.style || {}),
+  };
+  for (const r of p.reels) {
+    r.editing = {
+      ...r.editing,
+      colour: grade ? structuredClone(grade) : undefined,
+      captions: {
+        enabled: analysis.status === 'detected',
+        style: structuredClone(analysis.style || {}),
+      },
+    };
+    r.effective_style = { ...r.effective_style, captions: structuredClone(p.style.captions) };
+    if (analysis.pacing?.confidence === 'measured') paceReel(p, r, analysis.pacing.median_shot);
+    compile(p, r);
+  }
 }
 async function create(data: Record<string, any>) {
   if (running.size)
@@ -409,7 +469,7 @@ async function create(data: Record<string, any>) {
   const reference = data.sample ? await asset(data.sample) : undefined;
   if (reference && (reference.role !== 'sample' || !reference.width || !reference.height))
     throw new Error('Choose a video uploaded as a reference reel.');
-  if (reference && reference.caption_analysis?.version !== 2) {
+  if (reference && reference.caption_analysis?.version !== REFERENCE_VERSION) {
     const url = await blobURL(reference.id, reference.blob),
       video = await loadVideo(url);
     try {
@@ -420,13 +480,6 @@ async function create(data: Record<string, any>) {
     }
     await put('assets', reference.id, reference);
   }
-  if (
-    reference &&
-    (reference.caption_analysis?.status !== 'detected' || !reference.caption_analysis.style)
-  )
-    throw new Error(
-      'Reference caption detection did not succeed. No preset was substituted. Choose a clearer captioned reference, or remove it to use a preset.',
-    );
   if (data.music && (await asset(data.music)).role !== 'music')
     throw new Error('Choose an audio file uploaded as background music.');
   const total = files.reduce((n, f) => n + f.duration, 0),
@@ -461,7 +514,7 @@ async function create(data: Record<string, any>) {
           notes: String(data.reference_notes || '').slice(0, 6000),
           mode: reference.caption_analysis?.status === 'detected' ? 'caption-measured' : 'manual',
           caption_analysis: reference.caption_analysis,
-          baselineVersion: 2,
+          baselineVersion: REFERENCE_VERSION,
         }
       : undefined,
     error: null,
@@ -547,6 +600,7 @@ async function create(data: Record<string, any>) {
     compile(p, r);
     p.reels.push(r);
   }
+  if (reference?.caption_analysis) await applyReference(p, reference.caption_analysis);
   await put('projects', p.id, p);
   return { id: p.id, ...(await launch(p.id, 'storyboard')) };
 }
@@ -559,8 +613,12 @@ function sourceIDs(p: LocalProject) {
 }
 async function referencedAssets() {
   const used = new Set<string>();
+  const fonts = (await all<LocalAsset>('assets')).filter((a) => a.role === 'font');
   for (const p of await all<LocalProject>('projects')) {
     sourceIDs(p).forEach((id) => used.add(id));
+    const styleNames = JSON.stringify([p.style, ...p.reels.map((r) => r.editing)]);
+    for (const font of fonts)
+      if (styleNames.includes('Uploaded-' + font.digest!.slice(0, 16))) used.add(font.id);
     const previous = await get<LocalProject>('undo', p.id);
     if (previous) sourceIDs(previous).forEach((id) => used.add(id));
   }
@@ -575,7 +633,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   else if (path === '/config')
     result = {
       ai_enabled: false,
-      fonts: ['Manrope', 'DM Sans', 'Arial', 'Georgia'],
+      fonts: [...fontFamilies],
       max_upload_bytes: MAX_FILE,
       presets: ['clean', 'bold', 'minimal'],
       storyboard_limits: { stills_per_reel: 3, gif_seconds: 3 },
@@ -597,10 +655,12 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
     result = { ok: true };
   } else if (path === '/uploads')
     result = await Promise.all(
-      (await all<LocalAsset>('assets')).map(async ({ blob, ...a }) => ({
-        ...a,
-        ...(a.role === 'sample' ? { preview_url: await blobURL(a.id, blob) } : {}),
-      })),
+      (await all<LocalAsset>('assets'))
+        .filter((a) => a.role !== 'font')
+        .map(async ({ blob, ...a }) => ({
+          ...a,
+          ...(a.role === 'sample' ? { preview_url: await blobURL(a.id, blob) } : {}),
+        })),
     );
   else if (path === '/projects' && method === 'GET')
     result = (await all<LocalProject>('projects')).reverse().map((p) => ({
@@ -618,8 +678,8 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
     if (parts.length === 2 && method === 'GET') {
       const existing = await project(id);
       if (
-        existing.reference?.mode === 'manual' &&
-        !existing.reference.autoMatchAttempted &&
+        existing.reference &&
+        wantsReferenceUpgrade(existing) &&
         !existing.terminal &&
         !existing.busy &&
         !running.size
@@ -627,14 +687,15 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
         const repair = async () => {
           const latest = await project(id);
           if (
-            latest.reference?.mode !== 'manual' ||
-            latest.reference.autoMatchAttempted ||
+            !latest.reference ||
+            !wantsReferenceUpgrade(latest) ||
             latest.busy ||
             latest.terminal ||
             running.size
           )
             return;
           latest.reference.autoMatchAttempted = true;
+          latest.reference.autoMatchVersion = REFERENCE_VERSION;
           await put('projects', id, latest);
           try {
             await launch(id, 'reference');
@@ -699,7 +760,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           return { ok: true };
         }
         if (action === 'approve') {
-          if (p.reference && p.reference.mode !== 'caption-measured')
+          if (p.reference && !referenceReady(p))
             throw new Error(
               'Reference captions have not been copied. Match the reference before approving; a default preset cannot replace it.',
             );
@@ -822,6 +883,9 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
         if (action === 'reference-captions') {
           current(p, data);
           if (!p.reference) throw new Error('Choose a reference reel first.');
+          const referenceAsset = await asset(p.reference.id);
+          referenceAsset.caption_analysis = undefined;
+          await put('assets', referenceAsset.id, referenceAsset);
           p.reference.autoMatchAttempted = true;
           await put('projects', id, p);
           return launch(id, 'reference');
@@ -854,7 +918,7 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           if (p.terminal) throw new Error('Duplicate this completed project first.');
           invalidate(p);
           await put('projects', id, p);
-          return launch(id, p.reference?.mode === 'manual' ? 'reference' : 'storyboard');
+          return launch(id, p.reference && !referenceReady(p) ? 'reference' : 'storyboard');
         }
         if (action === 'transcribe') {
           current(p, data);
@@ -885,44 +949,16 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
 }
 function proposal(p: LocalProject, data: Record<string, any>): Proposal {
   if (data.generation !== p.generation) throw new Error('Refresh before asking for changes.');
-  const text = String(data.text || '').toLowerCase(),
-    changes: Changes = {},
-    editing: NonNullable<Changes['editing']> = {};
-  if (/\b(don't|do not|never|without)\b/.test(text))
-    throw new Error('Use a direct request such as “yellow captions” or “zoom to 1.2”.');
-  const colors: Record<string, string> = {
-    yellow: '#ffe600',
-    white: '#ffffff',
-    blue: '#60a5fa',
-    pink: '#f9a8d4',
-    orange: '#fb923c',
-    green: '#a3e635',
-  };
-  for (const [name, fill] of Object.entries(colors))
-    if (text.includes(name)) editing.captions = { style: { fill } };
-  const size = text.match(/(?:font|text) size\s*(\d+)/);
-  if (size) editing.captions = merge(editing.captions || {}, { style: { size: +size[1] } });
-  const zoom = text.match(/zoom(?: to)?\s*([\d.]+)/);
-  if (zoom) editing.crop = { zoom: +zoom[1] };
-  if (text.includes('mute music')) editing.music = { muted: true };
-  if (text.includes('bottom'))
-    editing.captions = merge(editing.captions || {}, { style: { y: 360 } });
-  const title = String(data.text || '').match(/title:\s*["“](.+?)["”]/i);
-  if (title) changes.title_text = title[1];
-  if (Object.keys(editing).length) changes.editing = editing;
-  if (!Object.keys(changes).length)
-    throw new Error(
-      'Try “yellow captions”, “font size 64”, “zoom to 1.2” or “mute music”. No paid AI is connected.',
-    );
-  validateChanges(changes);
-  return {
-    changes,
-    generation: p.generation,
-    provider: 'local quick instructions',
-    explanation:
-      'Review the proposed changes, then update the storyboard. No AI service was called.',
-  };
+  const r = p.reels.find((r) => r.id === data.reel_id) || p.reels[0];
+  const effective = merge(
+    r as unknown as Record<string, unknown>,
+    data.draft || {},
+  ) as unknown as typeof r;
+  const result = editingReply(p, effective, String(data.text || ''), data.context || []);
+  validateChanges(result.changes);
+  return { ...result, generation: p.generation, provider: 'Local editing assistant' };
 }
+
 export async function upload(
   file: File,
   role: string,
@@ -967,7 +1003,7 @@ export async function upload(
       const { analyzeBoxedReference } = await import('./referenceStyle');
       const cached = await get<LocalAsset>('assets', id);
       record.caption_analysis =
-        cached?.caption_analysis?.version === 2
+        cached?.caption_analysis?.version === REFERENCE_VERSION
           ? cached.caption_analysis
           : await analyzeBoxedReference(video, signal, progress);
     }

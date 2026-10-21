@@ -136,7 +136,7 @@ export default function App() {
     return () => window.removeEventListener('beforeunload', unload);
   }, [dirty]);
 
-  async function run(fn: () => Promise<unknown>) {
+  async function run(fn: () => Promise<unknown>, propagate = false) {
     setWorking(true);
     setError('');
     try {
@@ -145,6 +145,7 @@ export default function App() {
       await Promise.all([refresh(), loadProjects()]);
     } catch (e) {
       setError((e as Error).message);
+      if (propagate) throw e;
     } finally {
       setWorking(false);
     }
@@ -176,17 +177,19 @@ export default function App() {
     setRid(r.id);
     setSeek({ t: 0, key: Date.now() });
   }
-  async function apply() {
-    if (!project || !selected || !dirty) return;
+  async function apply(extra?: Changes) {
+    if (!project || !selected || (!dirty && !extra)) return;
     await run(async () => {
       const result = await api(`/projects/${project.id}/reels/${selected.id}`, 'PATCH', {
-        generation: patchGen,
+        generation: dirty ? patchGen : project.generation,
         revision: project.revision,
-        changes: patch,
+        changes: extra
+          ? merge(patch as Record<string, unknown>, extra as Record<string, unknown>)
+          : patch,
       });
       discard();
       return result;
-    });
+    }, !!extra);
   }
   async function approve() {
     if (!project?.needs || dirty) return;
@@ -627,8 +630,10 @@ export default function App() {
                   {project.busy && project.reference.mode !== 'caption-measured'
                     ? 'Detecting and copying your reference captions…'
                     : project.reference.mode === 'caption-measured'
-                      ? 'Reference caption style copied to your reels'
-                      : 'Reference caption style has not been applied'}
+                      ? 'Reference style applied to your reels'
+                      : project.reference.mode === 'analyzed'
+                        ? 'Reference colour and pacing applied — review captions'
+                        : 'Reference style has not been applied'}
                 </strong>
                 {project.reference.matchError && <p role="alert">{project.reference.matchError}</p>}
                 {project.terminal && project.reference.mode !== 'caption-measured' && (
@@ -669,6 +674,38 @@ export default function App() {
                       Retry reference caption detection
                     </button>
                   )
+                )}
+                <p className="field-hint">
+                  Colour:{' '}
+                  {project.reference.matched_colour ? 'measured and applied' : 'not yet measured'} ·
+                  Pacing:{' '}
+                  {project.reference.caption_analysis?.pacing?.confidence === 'measured'
+                    ? `${project.reference.caption_analysis.pacing.cuts.length} detected cuts, ${project.reference.caption_analysis.pacing.median_shot.toFixed(2)}s median shot`
+                    : 'no clear cuts detected; timing kept'}
+                  . Caption font:{' '}
+                  {project.reference.caption_analysis?.font_match || 'approximation'}
+                </p>
+                {project.reference.mode === 'analyzed' && (
+                  <p role="status">
+                    {project.reference.caption_analysis?.notes} Captions are off until you select
+                    their style.
+                  </p>
+                )}
+                {!project.busy && !project.terminal && project.reference.mode !== 'manual' && (
+                  <button
+                    className="button secondary"
+                    disabled={working || dirty}
+                    onClick={() =>
+                      void run(() =>
+                        api(`/projects/${project.id}/reference-captions`, 'POST', {
+                          generation: project.generation,
+                          revision: project.revision,
+                        }),
+                      )
+                    }
+                  >
+                    Reanalyze and apply full reference style
+                  </button>
                 )}
                 {project.reference.mode === 'caption-measured' &&
                   !project.reels.some(
@@ -782,7 +819,7 @@ export default function App() {
                   {!!project.needs.fixes?.length && <p>{JSON.stringify(project.needs.fixes)}</p>}
                   <p className="field-hint">
                     Local suggestions organize complete sentences; they do not judge story quality.
-                    Apply precise changes with the controls, or use the optional AI edit proposals.
+                    Use the controls or Chat to propose and review precise changes.
                   </p>
                 </div>
                 {!project.generation && (
@@ -1015,7 +1052,9 @@ export default function App() {
                     onChange={change}
                     onApply={() => void apply()}
                     onDiscard={discard}
-                    onProposal={change}
+                    onChatApply={async (changes) => {
+                      await apply(changes);
+                    }}
                     onError={setError}
                     onMusic={(file) => void addMusic(file)}
                   />

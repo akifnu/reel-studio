@@ -1,5 +1,7 @@
 import type { CaptionAnalysis, TextStyle } from '../types';
 import { checkAbort, seek } from './compositor';
+import { averageLooks, colourStats, pacingFromFrames, sceneSignature } from './referenceLook';
+export const REFERENCE_VERSION = 3;
 type Match = {
   bounds: { x: number; y: number; w: number; h: number };
   colour: number[];
@@ -172,9 +174,13 @@ export function boxedCaptionPixels(data: Uint8ClampedArray, w: number, h: number
         coreBins.set(key, b);
       }
       const core = [...coreBins.values()].sort((a, b) => b.n - a.n)[0];
+      const coreColour = core.rgb.map((v) => v / core.n);
+      // Reject a near-neutral computer panel reached by the colour tolerance.
+      if (Math.max(...coreColour) - Math.min(...coreColour) < 30)
+        continue;
       const match: Match = {
         bounds: { x: minX, y: minY, w: bw, h: bh },
-        colour: core.rgb.map((v) => v / core.n),
+        colour: coreColour,
         fill: fg.map((v) => v / pixels),
         x: (minX + maxX) / 2 / w,
         y: (centres[0] + centres.at(-1)!) / 2 / h,
@@ -204,25 +210,23 @@ export async function analyzeBoxedReference(
   canvas.height = Math.round((canvas.width * video.videoHeight) / video.videoWidth);
   const c = canvas.getContext('2d', { willReadFrequently: true })!;
   const matches: Match[] = [];
+  const looks: ReturnType<typeof colourStats>[] = [],
+    hist: number[][] = [];
   let preview: CaptionAnalysis['preview'];
   let best = 0;
   const window = Math.min(5, video.duration);
   // Stratified jitter: cover a short window, never scan the full reference.
-  const times = Array.from({ length: 12 }, (_, i) =>
-    Math.max(
-      0,
-      Math.min(video.duration - 0.03, (window * (i + 0.2 + (((i * 37) % 11) / 11) * 0.6)) / 12),
-    ),
+  const times = Array.from({ length: 24 }, (_, i) =>
+    Math.max(0, Math.min(video.duration - 0.03, (window * (i + 0.5)) / 24)),
   );
   for (const [i, t] of times.entries()) {
     checkAbort(signal);
     await seek(video, t, signal);
     c.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const m = boxedCaptionPixels(
-      c.getImageData(0, 0, canvas.width, canvas.height).data,
-      canvas.width,
-      canvas.height,
-    );
+    const pixels = c.getImageData(0, 0, canvas.width, canvas.height).data;
+    looks.push(colourStats(pixels, canvas.width, canvas.height));
+    hist.push(sceneSignature(pixels, canvas.width, canvas.height));
+    const m = boxedCaptionPixels(pixels, canvas.width, canvas.height);
     if (m) {
       matches.push(m);
       if (m.width * m.lines > best) {
@@ -242,15 +246,52 @@ export async function analyzeBoxedReference(
     progress?.(50 + Math.round(((i + 1) / times.length) * 40));
     await new Promise((r) => setTimeout(r, 0));
   }
+  const measured = measureBoxes(matches, preview, window, times);
+  measured.look = averageLooks(looks);
+  measured.pacing = pacingFromFrames(times, hist);
+  checkAbort(signal);
+  try {
+    const { detectCaptionOCR } = await import('./captionOCR');
+    const ocr = await detectCaptionOCR(
+      video,
+      times,
+      signal,
+      progress,
+      measured.style,
+      measured.preview?.t,
+    );
+    if (ocr.status === 'detected') {
+      return {
+        ...measured,
+        ...ocr,
+        preview: ocr.preview || measured.preview,
+        frames: times.length,
+        version: REFERENCE_VERSION,
+        matches: measured.status === 'detected' ? measured.matches : ocr.matches!,
+      };
+    }
+    measured.notes += ' ' + (ocr.notes || '');
+  } catch (error) {
+    checkAbort(signal);
+    measured.notes += ' Local OCR could not finish: ' + (error as Error).message;
+  }
+  return measured;
+}
+function measureBoxes(
+  matches: Match[],
+  preview: CaptionAnalysis['preview'],
+  window: number,
+  times: number[],
+): CaptionAnalysis {
   const unsupported: CaptionAnalysis = {
     status: 'unsupported',
-    version: 2,
+    version: REFERENCE_VERSION,
     window_seconds: window,
     times,
     frames: times.length,
     matches: matches.length,
     notes:
-      'No consistent solid-colour caption box was detected. No style has been applied. Choose a clearer captioned reference. Remove the reference if you want to start from a preset.',
+      'No confident caption style was found. Colour and pacing can still be matched; caption styling needs your review. No caption preset has been substituted.',
   };
   if (matches.length < 3) return unsupported;
   const group = matches.filter((m) => Math.abs(m.y - median(matches.map((x) => x.y))) < 0.08);
@@ -286,14 +327,15 @@ export async function analyzeBoxedReference(
   };
   return {
     status: 'detected',
+    method: 'boxed',
     preview,
-    version: 2,
+    version: REFERENCE_VERSION,
     window_seconds: window,
     times,
     frames: times.length,
     matches: consistent.length,
     style,
     notes:
-      'Measured box colour, white text, size and position from sampled frames. Rounded per-line boxes are recreated. Font uses Arial as an approximation; exact font identity and animation are not recovered. Pacing and colour grading are not analyzed.',
+      'Measured box colour, white text, size and position from sampled frames. Rounded per-line boxes are recreated. Font uses Arial as an approximation; exact font identity and animation are not recovered.',
   };
 }

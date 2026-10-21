@@ -4,6 +4,7 @@ import type { Reel } from '../types';
 import type { LocalProject } from './store';
 import { asset, get, hash, put } from './store';
 import { captionCanvas, captionStyle, canvasBlob, checkAbort, textAt, OUTPUT } from './compositor';
+import { gradeFilter, shotZoom } from './referenceLook';
 let current: FFmpeg | null = null;
 export function stopEngine() {
   current?.terminate();
@@ -208,7 +209,7 @@ export async function render(p: LocalProject, signal: AbortSignal, progress: (s:
         checkAbort(signal);
         const source = p.sources[shot.source],
           input = loaded.get(shot.source)!,
-          crop = { x: 0.5, y: 0.5, zoom: 1, ...r.editing?.crop };
+          crop = { x: 0.5, y: 0.5, ...r.editing?.crop, zoom: shotZoom(r, index) };
         const aspect = OUTPUT.w / OUTPUT.h;
         let cw = Math.min(source.width, source.height * aspect) / crop.zoom,
           ch = cw / aspect;
@@ -220,6 +221,8 @@ export async function render(p: LocalProject, signal: AbortSignal, progress: (s:
           zoom = (motion?.punch_rate || 0) * 0.08,
           push = (motion?.push_rate || 0) * 0.06;
         let filter = `crop=${cw}:${ch}:${Math.floor(x)}:${Math.floor(y)},scale=${OUTPUT.w}:${OUTPUT.h},setsar=1,fps=${OUTPUT.fps}`;
+        const colour = gradeFilter(r.editing?.colour);
+        if (colour) filter += ',' + colour;
         if (zoom || push)
           filter += `,zoompan=z='1+${zoom}*sin(on/12)*sin(on/12)+${push}*on/${Math.max(1, Math.ceil(shot.duration * OUTPUT.fps))}':x='iw/2-iw/zoom/2':y='ih/2-ih/zoom/2':d=1:s=${OUTPUT.w}x${OUTPUT.h}:fps=${OUTPUT.fps}`;
         const name = `part-${index++}.mp4`;

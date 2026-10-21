@@ -1,4 +1,5 @@
 import type { Project } from './types';
+import { browserMode } from './features';
 
 export default function ProjectInputs({
   project,
@@ -33,13 +34,15 @@ export default function ProjectInputs({
           )}
           {project.reference?.notes && <p className="reference-brief">{project.reference.notes}</p>}
           <p>
-            {project.reference?.mode === 'caption-measured'
-              ? 'Caption box colour, text size and position measured locally from a short reference sample. Font is approximate. Pacing, hook wording and colour grading remain manual.'
-              : project.reference?.mode === 'manual'
-                ? 'No measured caption style is applied. Match reference captions to analyze a short sample, or adjust the settings manually. Video colour grading stays manual.'
-                : project.reference
-                  ? 'Analyzed separately by the server. Check the measured style and storyboard before approving.'
-                  : 'No reference reel selected. Your edit starts from the chosen caption preset.'}
+            {browserMode && project.reference?.baselineVersion === 3
+              ? 'Reference colour and pacing are measured and applied. Detected captions use sampled size, placement, colour and outline; the original font remains approximate. Review the storyboard before approving.'
+              : project.reference?.mode === 'caption-measured'
+                ? 'Caption style copied by an older analyzer. Reapply the full reference style to measure colour, pacing and unboxed captions.'
+                : project.reference?.mode === 'manual'
+                  ? 'Reference matching is pending. Apply the full reference style to analyze a short sample and review it.'
+                  : project.reference
+                    ? 'Analyzed separately by the server. Check the measured style and storyboard before approving.'
+                    : 'No reference reel selected. Your edit starts from the chosen caption preset.'}
           </p>
           {project.reference?.caption_analysis && (
             <p>
@@ -50,7 +53,7 @@ export default function ProjectInputs({
           )}
           {onMatch && project.reference && !project.terminal && (
             <button className="button secondary" disabled={disabled} onClick={onMatch}>
-              Match reference captions on all reels
+              Reapply full reference style on all reels
             </button>
           )}
           <small>Reference picture and audio are excluded from the edit.</small>

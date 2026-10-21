@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import {
   Play,
   Pause,
@@ -38,6 +38,16 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
   const desired = useRef(0),
     drag = useRef<{ x: number; y: number; cx: number; cy: number } | null>(null);
   const previousGif = useRef(reel.gif.url);
+  const gradeId = 'grade' + useId().replace(/[^a-zA-Z0-9]/g, '');
+  const grade = patch.editing?.colour || reel.editing?.colour;
+  const strength = grade?.strength || 0,
+    saturation = 1 + ((grade?.saturation ?? 1) - 1) * strength;
+  const matrix = [0, 1, 2].flatMap((i) => [
+    ...[0.299, 0.587, 0.114].map((v, j) => (1 - saturation) * v + (i === j ? saturation : 0)),
+    0,
+    0,
+  ]);
+  const gradeMatrix = [...matrix, 0, 0, 0, 1, 0].join(' ');
   const duration = reel.duration || 0;
   const shot = shotAt(reel.shot_list, t),
     source = shot ? project.sources[shot.source] : Object.values(project.sources)[0];
@@ -48,6 +58,12 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
     ...patch.editing?.captions?.style,
   };
   const crop = { x: 0.5, y: 0.5, zoom: 1, ...reel.editing?.crop, ...patch.editing?.crop };
+  if (
+    (patch.editing?.pacing || reel.editing?.pacing)?.reframes &&
+    shot &&
+    reel.shot_list.indexOf(shot) % 2 === 1
+  )
+    crop.zoom *= 1.1;
   const enabled =
     patch.editing?.captions?.enabled ??
     reel.editing?.captions?.enabled ??
@@ -238,6 +254,32 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
         : text;
   return (
     <section className="player-panel" aria-label="Video preview">
+      {browserMode && grade && (
+        <svg width="0" height="0" aria-hidden="true" style={{ position: 'absolute' }}>
+          <defs>
+            <filter id={gradeId} colorInterpolationFilters="sRGB">
+              <feComponentTransfer>
+                {(['R', 'G', 'B'] as const).map((channel, i) => {
+                  const props = {
+                    type: 'linear' as const,
+                    slope: 1 + (grade.gain[i] - 1) * strength,
+                    intercept: (grade.offset[i] * strength) / 255,
+                  };
+                  return channel === 'R' ? (
+                    <feFuncR key={channel} {...props} />
+                  ) : channel === 'G' ? (
+                    <feFuncG key={channel} {...props} />
+                  ) : (
+                    <feFuncB key={channel} {...props} />
+                  );
+                })}
+              </feComponentTransfer>
+              <feColorMatrix type="matrix" values={gradeMatrix} />
+            </filter>
+          </defs>
+        </svg>
+      )}
+
       <div className="player-toolbar">
         <span className="eyebrow">
           <span className="live-dot" />
@@ -317,6 +359,7 @@ export default function Player({ project, reel, patch, onChange, onTime, seekTo,
                   style={
                     view === 'source'
                       ? {
+                          filter: browserMode && grade ? `url(#${gradeId})` : undefined,
                           width: pw,
                           height: ph,
                           left: (size.w - pw) / 2 + ox,

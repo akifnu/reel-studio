@@ -13,3 +13,4 @@ test-results/
 *.tsbuildinfo
 frontend/public/engine/
 frontend/public/speech-engine/
+frontend/public/caption-engine/

@@ -21,7 +21,25 @@ export type TextStyle = {
   highlight?: { fill?: string; mode?: string };
   anim?: { in?: string; in_dur?: number };
 };
+export type ColourStats = { mean: number[]; deviation: number[]; saturation: number };
+export type ColourGrade = {
+  gain: number[];
+  offset: number[];
+  saturation: number;
+  strength: number;
+};
+export type PacingAnalysis = {
+  cuts: number[];
+  median_shot: number;
+  confidence: 'measured' | 'no-cuts';
+  interval: number;
+};
 export type CaptionAnalysis = {
+  look?: ColourStats;
+  pacing?: PacingAnalysis;
+  method?: 'boxed' | 'ocr';
+  font_match?: string;
+  ocr_text?: string;
   preview?: { image: string; t: number };
   version?: number;
   window_seconds?: number;
@@ -33,6 +51,8 @@ export type CaptionAnalysis = {
   notes: string;
 };
 export type Editing = {
+  colour?: ColourGrade;
+  pacing?: { target: number; reframes: boolean };
   captions?: { enabled?: boolean; style?: TextStyle };
   crop?: { x?: number; y?: number; zoom?: number };
   music?: { gain_db?: number; muted?: boolean };
@@ -146,6 +166,9 @@ export type Project = {
     baselineVersion?: number;
     matchError?: string;
     autoMatchAttempted?: boolean;
+    autoMatchVersion?: number;
+    source_look?: ColourStats;
+    matched_colour?: ColourGrade;
   };
   sample_url: string | null;
   sample_review_url: string | null;

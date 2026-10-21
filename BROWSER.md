@@ -1,28 +1,34 @@
 # Free browser edition
 
-Open https://reel-studio-try-akifnu.fluffyfrog9.chatgpt.site with the owner's
-ChatGPT account. Processing uses your device; no Render account or paid API is
+Open https://reel-studio-try-akifnu.fluffyfrog9.chatgpt.site. Processing uses your device; no Render account or paid API is
 required. The server edition remains available in this repository.
 
 1. Choose **New project**. **Reference reel** is an optional example of the editing
    style you like; **Raw footage** is the required content to edit. They have
    separate uploads and library labels. A reference alone cannot create a reel.
-   Caption matching samples **12 frames from the first five seconds**, at a maximum
-   analysis width of 360 pixels. For solid-colour boxes with white text it measures
-   the box colour, text size, placement and line layout, then applies rounded
-   per-line boxes to the raw footage's captions. The result is cached by file hash.
-   Reference style is applied automatically as the initial caption style on every
-   reel. Setup presets are hidden while a reference is selected; an old
-   `reference_captions=false` value cannot switch matching off. Detection failure
-   blocks creation instead of substituting a preset. Remove the reference if you
-   intentionally want a preset. Edit captions only after seeing the copied style.
-   Exact font identity/weight and animation cannot be inferred reliably here;
-   Arial Regular is an approximation. Pacing, hook wording and video colour grading
-   remain manual. **Project inputs → Match reference captions on all reels** can
-   retry detection and rebuild the storyboard, requiring approval again. Older
-   unfinished projects that accidentally used a preset are repaired automatically
-   once, with an undo snapshot and fresh storyboard approval. Subsequent explicit
-   caption edits are preserved; completed exports are kept.
+   Reference analysis samples **24 frames from the first five seconds**. Scene
+   histograms measure cut boundaries and median shot length. RGB statistics measure
+   a bounded colour transfer, which is applied to Source playback, stills, GIF and
+   MP4. Scene content/lighting can affect this approximation; it is not the original LUT.
+   Fast pacing makes alternating 10% reframe cuts. With captions/transcripts it keeps
+   the selected speech and removes sentence gaps; without a transcript it preserves
+   every source second and the original audio. It does not invent new camera angles.
+   Caption analysis measures coloured backplates, then uses a local English OCR worker
+   on up to three high-resolution frames to handle unboxed text, case, size, position,
+   colour and an estimated outline. The roughly 8 MB OCR runtime/model stays local
+   and the pinned language data is verified during the build. No video is uploaded.
+   Caption detection does not depend on a font picker. Font shape is approximated
+   from available faces; **Captions → Import original font** accepts TTF/OTF/WOFF/WOFF2
+   files up to 5 MB and saves them locally for previews, exports and reloads.
+   Reference style applies automatically. Presets cannot override it during setup.
+   Uncertain captions stay disabled with a visible warning; measured colour and
+   pacing remain usable. No preset is silently substituted. Reference caption OCR
+   text is evidence only, never raw-footage dialogue. Matching is cached by file
+   hash and analyzer version. The comparison above the editor shows observed and
+   recreated captions. **Reanalyze and apply full reference style** retries it with
+   an undo snapshot, rebuilds the storyboard and requires approval again. Existing
+   unfinished projects upgrade once, except projects with explicit saved edits.
+   Previously edited projects can opt into the full match with that button.
    Reference picture, speech and music never enter the output.
 2. Optionally enter a caption script (one line per caption). These timings are
    evenly spaced, not speech measurements. Blank input produces no invented speech.
@@ -61,7 +67,7 @@ required. The server edition remains available in this repository.
 Use short clips on a modern browser. Desktop is faster; phone memory, codecs and
 background suspension vary. H.264/AAC MP4 works best. Limits: 100 MB/file,
 200 MB total local inputs (including reference and music), up to five minutes/source, 1–3 reels,
-60 seconds/reel, 120 seconds total, and 20 segments/reel. English auto captions
+60 seconds/reel, 120 seconds total, and 120 segments/reel. English auto captions
 support a selected source span of up to two minutes. Each GIF is capped at 2 MB.
 
 Browser storage is not a backup or cloud sync. Its quota/eviction policy belongs
@@ -70,11 +76,20 @@ and download important outputs. Large captions or many overlays can exceed a
 phone's memory; use shorter footage if encoding fails. The image/GIF previews
 sample selected moments and are silent. Source playback approximates the draft.
 
-This edition supports bounded boxed-caption measurement and explicit cuts, not
-complete reference-style transfer, face tracking, highlight understanding or server speech/QC evaluation. Browser
-checks verify encoded dimensions/duration; final visual/audio review is manual.
-Quick text instructions are local rules, not a general AI editing agent. yt-dlp
-URL ingestion and the complete Python pipeline remain server-edition features.
+This edition supports measured colour/cut transfer and OCR caption styling, not
+complete reference reconstruction, font identification, frame-by-frame caption
+animation cloning, face tracking or story understanding. Browser checks verify
+encoded dimensions/duration; final visual/audio review is manual.
+
+**Chat** is a persistent local conversation with contextual follow-ups, reference
+analysis explanations, and editable proposals. Try “warmer and faster”, “match
+reference colour”, “cuts every 1 second”, “yellow captions without a box” or
+“trim to 10 seconds”. **Apply & update storyboard** saves a real edit through the
+same revision checks and undo mechanism as the controls. Chat never approves or
+renders. Unsupported requests and negative instructions leave the edit unchanged.
+Chat history is local to this browser/project/reel; clear it in the Chat panel.
+It is a free command assistant, not a general LLM; no paid AI is connected.
+yt-dlp URL ingestion and the Python pipeline remain server-edition features.
 
 ## Build and test
 
@@ -119,7 +134,7 @@ Both include `captions.srt`, `edit-plan.json`, the accepted `approved-preview.mp
 separate original music when supplied, and plain-language instructions. SRT mobile
 import is not assumed; use CapCut text/auto captions when unavailable. Style
 references are excluded. Desktop fonts/line wrapping may differ, and motion,
-caption animations, SFX and automatic music ducking must be recreated.
+caption animations, colour grading, pacing reframes, SFX and automatic music ducking must be recreated. The accepted MP4 is the visual reference; the edit plan includes colour/pacing settings.
 
 Desktop draft schema references: [pyCapCut](https://github.com/GuanYixuan/pyCapCut)
 and [CapCut's project import limitations](https://www.capcut.com/help/import-a-previous-project-into-the-current-project).
@@ -130,5 +145,5 @@ Reference caption status and a visual comparison are shown above the editor: the
 observed caption crop and a sample rendered through the same caption compositor
 used by the GIF and MP4. The sample wording is illustrative and never enters the
 reel. This makes copying visible before optional edits. Matching remains a measured
-reconstruction of supported boxed captions; exact font identity, font metrics and
+reconstruction of measurable boxed and unboxed captions; exact font identity, font metrics and
 frame-by-frame animation cannot be guaranteed from the flattened video.

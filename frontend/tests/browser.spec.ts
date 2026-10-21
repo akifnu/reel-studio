@@ -90,6 +90,60 @@ test.beforeAll(() => {
     'yuv420p',
     join(fixtures, 'white-raw.mp4'),
   ]);
+  execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-y',
+    '-f',
+    'lavfi',
+    '-i',
+    "color=c=0x805030:size=720x1280:rate=24,drawbox=x=0:y=0:w=iw:h=ih:c=0x403020:t=fill:enable='lt(mod(t,1.2),.6)',drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf:text=THIS IS MY CAPTION:fontsize=52:fontcolor=yellow:borderw=3:bordercolor=black:x=(w-tw)/2:y=830",
+    '-t',
+    '5',
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    join(fixtures, 'unboxed-fast-reference.mp4'),
+  ]);
+  execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-y',
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=gray:size=720x1280:rate=24',
+    '-f',
+    'lavfi',
+    '-i',
+    'sine=frequency=440:sample_rate=48000',
+    '-c:a',
+    'aac',
+    '-t',
+    '4',
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    join(fixtures, 'gray-raw.mp4'),
+  ]);
+  execFileSync('ffmpeg', [
+    '-v',
+    'error',
+    '-y',
+    '-f',
+    'lavfi',
+    '-i',
+    'color=c=0x252525:size=720x1280:rate=24,drawgrid=w=72:h=40:t=1:c=gray@0.4,drawbox=x=80:y=200:w=560:h=400:c=0xc2c4bc:t=fill,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf:text=Small computer interface text:fontsize=20:fontcolor=white:x=180:y=350,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=CREATE BETTER REELS:fontsize=44:fontcolor=white:borderw=3:bordercolor=black:x=(w-tw)/2:y=825,drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text=WITHOUT THE HASSLE:fontsize=44:fontcolor=white:borderw=3:bordercolor=black:x=(w-tw)/2:y=890',
+    '-t',
+    '5',
+    '-c:v',
+    'libx264',
+    '-pix_fmt',
+    'yuv420p',
+    join(fixtures, 'busy-outlined-reference.mp4'),
+  ]);
 });
 async function ready(page: any) {
   await page.goto('/');
@@ -114,7 +168,9 @@ async function localProject(page: any) {
   await expect(
     dialog.getByText('Reference caption style detected — applied automatically', { exact: true }),
   ).toBeVisible();
-  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
   await dialog
     .getByLabel('Raw footage', { exact: true })
     .setInputFiles(join(fixtures, 'source.mp4'));
@@ -401,7 +457,9 @@ test('the same file can be explicitly uploaded into both roles without overwriti
   await dialog
     .getByLabel('Reference reel', { exact: true })
     .setInputFiles(join(fixtures, 'boxed-reference.mp4'));
-  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
   await expect(
     dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
   ).toBeDisabled();
@@ -435,7 +493,9 @@ test('the same file can be explicitly uploaded into both roles without overwriti
   await page.getByText('Use a previously uploaded file', { exact: true }).click();
   const ref = dialog.locator('.library-row').filter({ hasText: 'Reference style' });
   await ref.getByRole('button').first().click();
-  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
   await expect(
     dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
   ).toBeDisabled();
@@ -443,7 +503,7 @@ test('the same file can be explicitly uploaded into both roles without overwriti
   await expect(dialog.getByRole('alert')).toContainText('still used by a project');
 });
 
-test('reference caption style comes from 12 frames in five seconds and reaches the real MP4', async ({
+test('reference caption style comes from 24 frames in five seconds and reaches the real MP4', async ({
   page,
 }, testInfo) => {
   await ready(page);
@@ -510,7 +570,7 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
       captions: p.reels[0].caption_events,
     };
   });
-  expect(measured.analysis.times).toHaveLength(12);
+  expect(measured.analysis.times).toHaveLength(24);
   expect(measured.analysis.times.every((t: number) => t >= 0 && t <= 5)).toBe(true);
   expect(measured.style.fill).toBe('#ffffff');
   expect(measured.style.stroke.width).toBe(0);
@@ -535,6 +595,7 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
         p.reference.mode = 'manual';
         delete p.reference.baselineVersion;
         delete p.reference.autoMatchAttempted;
+        delete p.reference.autoMatchVersion;
         p.style.captions.style = { font: 'Manrope', weight: 700, size: 56, fill: '#ffe600' };
         for (const reel of p.reels) {
           reel.editing.captions.style = structuredClone(p.style.captions.style);
@@ -548,7 +609,7 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
   await page.reload();
   await expect(
     page.getByRole('region', { name: 'Reference caption status', exact: true }),
-  ).toContainText('Reference caption style copied to your reels', { timeout: 30000 });
+  ).toContainText('Reference style applied to your reels', { timeout: 30000 });
   await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
     timeout: 60000,
   });
@@ -569,6 +630,40 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
   await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
     timeout: 60000,
   });
+  // An explicit reanalysis must inspect pixels again, rather than reuse a stale
+  // cached analysis (including after the user supplies an original font).
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const q = indexedDB.open('reel-studio-local-v1');
+      q.onsuccess = () => resolve(q.result);
+    });
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction('assets', 'readwrite'),
+        store = tx.objectStore('assets'),
+        q = store.getAll();
+      q.onsuccess = () => {
+        for (const a of q.result)
+          if (a.role === 'sample') {
+            a.caption_analysis.style.fill = '#ff00ff';
+            store.put(a, a.id);
+          }
+      };
+      tx.oncomplete = () => resolve();
+    });
+  });
+  const previousGeneration = (await storedProject(page, 'Measured caption style')).generation;
+  await page
+    .getByRole('button', { name: 'Reanalyze and apply full reference style', exact: true })
+    .click();
+  await expect
+    .poll(async () => (await storedProject(page, 'Measured caption style')).generation, {
+      timeout: 30000,
+    })
+    .toBeGreaterThan(previousGeneration);
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  await expect(page.getByLabel('Custom caption colour', { exact: true })).toHaveValue('#ffffff');
   await page.getByRole('button', { name: 'Approve & render', exact: true }).click();
   await expect(
     page.getByRole('button', { name: 'Accept passing renders', exact: true }),
@@ -603,7 +698,7 @@ test('reference caption style comes from 12 frames in five seconds and reaches t
   expect(green).toBeGreaterThan(1000);
 });
 
-test('failed caption detection stops setup instead of silently using a preset', async ({
+test('uncertain captions still allow measured colour and pacing, without a preset', async ({
   page,
 }) => {
   await ready(page);
@@ -613,18 +708,206 @@ test('failed caption detection stops setup instead of silently using a preset', 
   await dialog
     .getByLabel('Reference reel', { exact: true })
     .setInputFiles(join(fixtures, 'reference.mp4'));
-  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Remove reference', exact: true })).toBeVisible({
+    timeout: 30000,
+  });
   await dialog
     .getByLabel('Raw footage', { exact: true })
     .setInputFiles(join(fixtures, 'source.mp4'));
-  await expect(dialog.getByRole('alert')).toContainText('Detection failed');
+  await expect(dialog.getByRole('alert')).toContainText('no preset is substituted');
   await expect(dialog.locator('.preset-grid')).toHaveCount(0);
   await expect(
     dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
-  ).toBeDisabled();
+  ).toBeEnabled();
   await dialog.getByRole('button', { name: 'Remove reference', exact: true }).click();
   await expect(dialog.locator('.preset-grid')).toBeVisible();
   await expect(
     dialog.getByRole('button', { name: 'Create storyboard', exact: true }),
   ).toBeEnabled();
+});
+
+async function storedProject(page: any, name: string) {
+  return page.evaluate(async (name: string) => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const q = indexedDB.open('reel-studio-local-v1');
+      q.onsuccess = () => resolve(q.result);
+    });
+    return new Promise<any>((resolve) => {
+      const q = db.transaction('projects').objectStore('projects').getAll();
+      q.onsuccess = () => resolve(q.result.find((p: any) => p.name === name));
+    });
+  }, name);
+}
+test('unboxed OCR, measured colour and fast pacing, custom font and conversational edits reach a real export', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(180000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await ready(page);
+  let engineRequests = 0;
+  page.on('request', (r) => {
+    if (r.url().includes('/engine/')) engineRequests++;
+  });
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page
+    .getByLabel('Reference reel', { exact: true })
+    .setInputFiles(join(fixtures, 'unboxed-fast-reference.mp4'));
+  await expect(
+    page.getByText('Reference caption style detected — applied automatically', { exact: true }),
+  ).toBeVisible({ timeout: 60000 });
+  await expect(page.getByRole('dialog')).toContainText('captions without a box');
+  await page
+    .getByLabel('Raw footage', { exact: true })
+    .setInputFiles(join(fixtures, 'gray-raw.mp4'));
+  await page.getByLabel('Project name', { exact: true }).fill('OCR colour pacing');
+  await page.getByLabel('Caption script', { exact: true }).fill('Words from my raw recording.');
+  await page.getByRole('button', { name: 'Create storyboard', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  await expect(page.getByRole('heading', { name: 'OCR colour pacing', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  let p = await storedProject(page, 'OCR colour pacing');
+  const a = p.reference.caption_analysis;
+  expect(a.method).toBe('ocr');
+  expect(a.frames).toBe(24);
+  expect(a.pacing.cuts.length).toBeGreaterThan(3);
+  expect(a.style.box.color).toBe('');
+  expect(parseInt(a.style.fill.slice(1, 3), 16)).toBeGreaterThan(200);
+  expect(parseInt(a.style.fill.slice(3, 5), 16)).toBeGreaterThan(180);
+  expect(parseInt(a.style.fill.slice(5, 7), 16)).toBeLessThan(50);
+  expect(p.reels[0].segments.length).toBeGreaterThan(3);
+  expect(p.reels[0].duration).toBeCloseTo(4, 2);
+  expect(p.reels[0].editing.pacing.reframes).toBe(true);
+  expect(p.reels[0].editing.colour.strength).toBe(1);
+  expect(p.reels[0].caption_events.map((c: any) => c.text).join(' ')).toBe(
+    'Words from my raw recording.',
+  );
+  const rgb = await page
+    .locator('.storyboard-stills img')
+    .first()
+    .evaluate(async (img: HTMLImageElement) => {
+      await img.decode();
+      const c = document.createElement('canvas');
+      c.width = img.naturalWidth;
+      c.height = img.naturalHeight;
+      const x = c.getContext('2d')!;
+      x.drawImage(img, 0, 0);
+      return [...x.getImageData(10, 10, 1, 1).data];
+    });
+  expect(rgb[0]).toBeGreaterThan(rgb[1] + 10);
+  expect(engineRequests).toBe(0);
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+  await page
+    .getByLabel('Message editing assistant', { exact: true })
+    .fill('What did you detect in the reference?');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await expect(page.getByRole('log', { name: 'Editing conversation' })).toContainText(
+    '24 sampled frames',
+  );
+  const generation = p.generation;
+  await page.getByLabel('Message editing assistant', { exact: true }).fill('Warmer and faster');
+  await page.getByRole('button', { name: 'Send message', exact: true }).click();
+  await page.getByRole('button', { name: 'Apply & update storyboard', exact: true }).click();
+  await expect
+    .poll(async () => (await storedProject(page, 'OCR colour pacing')).generation)
+    .toBeGreaterThan(generation);
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  p = await storedProject(page, 'OCR colour pacing');
+  expect(p.reels[0].editing.colour.offset[0]).toBeGreaterThan(a.look.mean[0] - 128 * 0.8 - 2);
+  await page.getByRole('tab', { name: 'Captions', exact: true }).click();
+  await page
+    .getByLabel('Import caption font', { exact: true })
+    .setInputFiles('/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf');
+  await expect(page.getByLabel('Caption font', { exact: true })).toHaveValue(/^Uploaded-/);
+  const family = await page.getByLabel('Caption font', { exact: true }).inputValue();
+  await page.getByRole('button', { name: 'Update storyboard', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  await page.reload();
+  await expect(page.getByLabel('Caption font', { exact: true })).toHaveValue(family);
+  expect(await page.evaluate((f) => document.fonts.check(`16px "${f}"`), family)).toBe(true);
+  await page.getByRole('tab', { name: 'Chat', exact: true }).click();
+  await expect(page.getByRole('log')).toContainText('Warmer and faster');
+  expect(engineRequests).toBe(0);
+  await page.getByRole('button', { name: 'Approve & render', exact: true }).click();
+  await expect(
+    page.getByRole('button', { name: 'Accept passing renders', exact: true }),
+  ).toBeVisible({ timeout: 120000 });
+  await page.getByRole('button', { name: 'Accept passing renders', exact: true }).click();
+  const download = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download r01.mp4', exact: true }).click();
+  const file = testInfo.outputPath('colour-pacing.mp4');
+  await (await download).saveAs(file);
+  const pixels = execFileSync(
+    'ffmpeg',
+    [
+      '-v',
+      'error',
+      '-ss',
+      '1',
+      '-i',
+      file,
+      '-frames:v',
+      '1',
+      '-f',
+      'rawvideo',
+      '-pix_fmt',
+      'rgb24',
+      'pipe:1',
+    ],
+    { maxBuffer: 4 * 1024 * 1024 },
+  );
+  const probe = JSON.parse(
+    execFileSync('ffprobe', ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file], {
+      encoding: 'utf8',
+    }),
+  );
+  expect(probe.streams.some((s: any) => s.codec_type === 'audio')).toBe(true);
+  expect(+probe.format.duration).toBeGreaterThan(3.8);
+  expect(+probe.format.duration).toBeLessThan(4.4);
+  expect(pixels[0]).toBeGreaterThan(pixels[1] + 10);
+  expect(errors).toEqual([]);
+  await page.screenshot({ path: testInfo.outputPath('editing-chat.png'), fullPage: true });
+});
+
+test('outlined multiline captions are distinguished from neutral computer panels and small UI text', async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+  await ready(page);
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page
+    .getByLabel('Reference reel', { exact: true })
+    .setInputFiles(join(fixtures, 'busy-outlined-reference.mp4'));
+  await expect(
+    page.getByText('Reference caption style detected — applied automatically', { exact: true }),
+  ).toBeVisible({ timeout: 60000 });
+  const a = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve) => {
+      const q = indexedDB.open('reel-studio-local-v1');
+      q.onsuccess = () => resolve(q.result);
+    });
+    return new Promise<any>((resolve) => {
+      const q = db.transaction('assets').objectStore('assets').getAll();
+      q.onsuccess = () => resolve(q.result.find((a: any) => a.role === 'sample').caption_analysis);
+    });
+  });
+  expect(a.method).toBe('ocr');
+  expect(a.style.box.color).toBe('');
+  expect(a.style.fill).toBe('#ffffff');
+  expect(a.style.weight).toBeGreaterThanOrEqual(700);
+  expect(a.style.stroke.width).toBeGreaterThan(0);
+  expect(Math.abs(a.style.x)).toBeLessThan(15);
+  expect(a.style.y).toBeGreaterThan(220);
+  expect(a.style.y).toBeLessThan(280);
+  expect(a.ocr_text).toContain('CREATE');
+  expect(a.ocr_text).toContain('HASSLE');
+  expect(a.style.words_per_caption).toBeGreaterThanOrEqual(5);
 });

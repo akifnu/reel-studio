@@ -2,6 +2,7 @@ import { GIFEncoder, quantize, applyPalette } from 'gifenc';
 import type { CaptionEvent, Reel, TextStyle } from '../types';
 import type { LocalProject } from './store';
 import { asset, blobURL, put } from './store';
+import { gradeCanvas, shotZoom } from './referenceLook';
 export const OUTPUT = { w: 540, h: 960, fps: 24 };
 export function checkAbort(signal?: AbortSignal) {
   if (signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -37,15 +38,14 @@ export function compile(p: LocalProject, r: Reel) {
           groups = Array.from({ length: Math.ceil(words.length / perCaption) }, (_, i) =>
             words.slice(i * perCaption, i * perCaption + perCaption).join(' '),
           ),
-          a = offset + Math.max(start, s.s) - start,
-          b = offset + Math.min(end, s.e) - start;
-        groups.forEach((text, i) =>
-          captions.push({
-            s: a + ((b - a) * i) / groups.length,
-            e: a + ((b - a) * (i + 1)) / groups.length,
-            text,
-          }),
-        );
+          sentenceDuration = s.e - s.s;
+        groups.forEach((text, i) => {
+          const groupStart = s.s + (sentenceDuration * i) / groups.length,
+            groupEnd = s.s + (sentenceDuration * (i + 1)) / groups.length,
+            a = Math.max(start, groupStart),
+            b = Math.min(end, groupEnd);
+          if (b > a) captions.push({ s: offset + a - start, e: offset + b - start, text });
+        });
       }
     }
     const duration = end - start,
@@ -57,8 +57,15 @@ export function compile(p: LocalProject, r: Reel) {
     throw new Error('Each reel must contain 0.1–60 seconds of footage.');
   r.duration = offset;
   r.shot_list = shots;
-  r.caption_events = captions;
-  r.speech = captions.map((c) => c.text).join(' ');
+  const joined: CaptionEvent[] = [];
+  for (const caption of captions) {
+    const previous = joined.at(-1);
+    if (previous && previous.text === caption.text && Math.abs(previous.e - caption.s) < 0.002)
+      previous.e = caption.e;
+    else joined.push(caption);
+  }
+  r.caption_events = joined;
+  r.speech = joined.map((c) => c.text).join(' ');
   r.text_events = [
     ...(r.title_text ? [{ s: 0, e: Math.min(2, offset), text: r.title_text, role: 'hook' }] : []),
     ...(r.cta ? [{ s: Math.max(0, offset - 2), e: offset, text: r.cta, role: 'cta' }] : []),
@@ -276,8 +283,15 @@ export async function board(
       canvas.width = width;
       canvas.height = height;
       const c = canvas.getContext('2d')!;
+      const previewReel = {
+        ...r,
+        editing: {
+          ...r.editing,
+          crop: { ...r.editing?.crop, zoom: shotZoom(r, r.shot_list.indexOf(shot)) },
+        },
+      };
       const crop = cropSize(
-        r,
+        previewReel,
         video.videoWidth,
         video.videoHeight,
         width,
@@ -286,6 +300,7 @@ export async function board(
         shot.duration,
       );
       c.drawImage(video, crop.x, crop.y, crop.sw, crop.sh);
+      gradeCanvas(canvas, r.editing?.colour);
       const text = textAt(r, t);
       if (text) {
         const active =
