@@ -336,14 +336,18 @@ async function create(data: Record<string, any>) {
   )
     throw new Error('Choose 1–3 reels, at most 60 seconds each and 120 seconds in total.');
   if (!data.name?.trim()) throw new Error('Give your project a name.');
-  if (data.sample)
-    throw new Error(
-      'Automatic reference-style analysis requires the server edition. Choose a caption preset here.',
-    );
   if (!data.sources?.length || data.sources.length > 3)
     throw new Error('Choose 1–3 source videos.');
   const files: LocalAsset[] = await Promise.all(data.sources.map((id: string) => asset(id)));
-  if (files.some((f) => !f.width || !f.height)) throw new Error('Source files must contain video.');
+  if (files.some((f) => f.role !== 'source' || !f.width || !f.height))
+    throw new Error(
+      'Choose raw footage for the source input; references and music cannot be used as raw clips.',
+    );
+  const reference = data.sample ? await asset(data.sample) : undefined;
+  if (reference && (reference.role !== 'sample' || !reference.width || !reference.height))
+    throw new Error('Choose a video uploaded as a reference reel.');
+  if (data.music && (await asset(data.music)).role !== 'music')
+    throw new Error('Choose an audio file uploaded as background music.');
   const total = files.reduce((n, f) => n + f.duration, 0),
     target = Math.min(duration, total / count);
   if (target < 0.1) throw new Error('The selected clips are too short.');
@@ -369,6 +373,14 @@ async function create(data: Record<string, any>) {
     music_url: null,
     musicId: data.music || undefined,
     sample_url: null,
+    reference: reference
+      ? {
+          id: reference.id,
+          name: reference.name,
+          notes: String(data.reference_notes || '').slice(0, 6000),
+          mode: 'manual',
+        }
+      : undefined,
     error: null,
     browserReady: false,
   };
@@ -454,7 +466,11 @@ async function create(data: Record<string, any>) {
   return { id: p.id, ...(await launch(p.id, 'storyboard')) };
 }
 function sourceIDs(p: LocalProject) {
-  return [...Object.values(p.sources).map((s) => s.id), ...(p.musicId ? [p.musicId] : [])];
+  return [
+    ...Object.values(p.sources).map((s) => s.id),
+    ...(p.musicId ? [p.musicId] : []),
+    ...(p.reference ? [p.reference.id] : []),
+  ];
 }
 async function referencedAssets() {
   const used = new Set<string>();
@@ -495,7 +511,12 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
     revoke(id);
     result = { ok: true };
   } else if (path === '/uploads')
-    result = (await all<LocalAsset>('assets')).map(({ blob: _, ...a }) => a);
+    result = await Promise.all(
+      (await all<LocalAsset>('assets')).map(async ({ blob, ...a }) => ({
+        ...a,
+        ...(a.role === 'sample' ? { preview_url: await blobURL(a.id, blob) } : {}),
+      })),
+    );
   else if (path === '/projects' && method === 'GET')
     result = (await all<LocalProject>('projects')).reverse().map((p) => ({
       id: p.id,
@@ -671,7 +692,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
         }
         if (action === 'music') {
           current(p, data);
-          await asset(data.upload_id);
+          if ((await asset(data.upload_id)).role !== 'music')
+            throw new Error(
+              'Choose a background-music upload. Reference audio cannot be used as music.',
+            );
           await put('undo', id, p);
           p.musicId = data.upload_id;
           p.generation++;
@@ -771,8 +795,8 @@ export async function upload(
 ): Promise<Upload> {
   await ready;
   checkAbort(signal);
-  if (role === 'sample')
-    throw new Error('Choose a preset; automatic reference analysis requires the server edition.');
+  if (!['source', 'sample', 'music'].includes(role))
+    throw new Error('Choose raw footage, a reference reel or background music.');
   if (!file.size || file.size > MAX_FILE)
     throw new Error('Use a file between 1 byte and 100 MB. Short H.264/AAC MP4 clips work best.');
   if ((await all<LocalAsset>('assets')).reduce((n, a) => n + a.bytes, 0) + file.size > MAX_TOTAL)
@@ -786,13 +810,15 @@ export async function upload(
     video = await loadVideo(url, signal);
     if (!Number.isFinite(video.duration) || video.duration <= 0 || video.duration > 300)
       throw new Error('Use source clips up to five minutes long.');
-    if (role === 'source' && (!video.videoWidth || !video.videoHeight))
+    if (role !== 'music' && (!video.videoWidth || !video.videoHeight))
       throw new Error('This source must contain a video track.');
     progress(40);
-    const id = await hash(file);
+    const digest = await hash(file),
+      id = role + '-' + digest;
     checkAbort(signal);
     const record: LocalAsset = {
       id,
+      digest,
       name: file.name.slice(0, 160),
       role,
       bytes: file.size,
@@ -804,7 +830,7 @@ export async function upload(
     await put('assets', id, record);
     progress(100);
     const { blob: _, ...result } = record;
-    return result;
+    return { ...result, ...(role === 'sample' ? { preview_url: await blobURL(id, file) } : {}) };
   } finally {
     if (video) releaseVideo(video);
     URL.revokeObjectURL(url);

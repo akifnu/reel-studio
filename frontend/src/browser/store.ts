@@ -140,6 +140,10 @@ export async function hydrate(project: LocalProject): Promise<LocalProject> {
     const a = await asset(source.id);
     source.url = await blobURL(a.id, a.blob);
   }
+  if (p.reference) {
+    const a = await asset(p.reference.id);
+    p.sample_url = await blobURL(a.id, a.blob);
+  }
   if (p.musicId) {
     const a = await asset(p.musicId);
     p.music_url = await blobURL(a.id, a.blob);
@@ -179,6 +183,7 @@ export async function signature(p: LocalProject) {
   return hash({
     sources: Object.fromEntries(Object.entries(p.sources).map(([k, v]) => [k, v.id])),
     music: p.musicId,
+    reference: p.reference,
     style: p.style,
     transcripts: p.transcripts,
     reels: p.reels.map((r) => ({

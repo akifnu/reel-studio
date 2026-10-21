@@ -30,6 +30,7 @@ import { api, ApiError, waitTask, upload } from './api';
 import type { Changes, Config, Project, ProjectSummary, Reel } from './types';
 import { merge, phase, time } from './utils';
 import NewProject from './NewProject';
+import ProjectInputs from './ProjectInputs';
 import Player from './Player';
 import Inspector from './Inspector';
 import { browserMode } from './features';
@@ -611,6 +612,7 @@ export default function App() {
                 </p>
               </div>
             )}
+            <ProjectInputs project={project} />
             {project.error && (
               <div className="state-callout error">
                 <AlertCircle size={20} />

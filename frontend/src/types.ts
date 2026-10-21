@@ -116,6 +116,7 @@ export type Project = {
   style: Style;
   sources: Record<string, Source>;
   transcripts: Record<string, { sentences: Sentence[]; timing: string; lang: string }>;
+  reference?: { id: string; name: string; notes: string; mode: 'manual' | 'analyzed' };
   sample_url: string | null;
   sample_review_url: string | null;
   music_url: string | null;
@@ -151,7 +152,13 @@ export type Config = {
   presets: string[];
   storyboard_limits: Record<string, number>;
 };
-export type Upload = { id: string; name: string; role: string; bytes: number };
+export type Upload = {
+  id: string;
+  name: string;
+  role: string;
+  bytes: number;
+  preview_url?: string;
+};
 export type Proposal = {
   changes: Changes;
   explanation: string;

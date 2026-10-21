@@ -3249,3 +3249,139 @@ input[type='checkbox'] {
   gap: 12px;
   margin: 18px 0;
 }
+
+/* The style reference and the footage have separate jobs throughout the editor. */
+.ingestion-section {
+  margin: 24px 0;
+}
+.ingestion-heading {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 14px;
+}
+.ingestion-step {
+  flex: 0 0 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: #e9efdf;
+  color: #50653e;
+  font-weight: 700;
+}
+.ingestion-heading h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: #50653e;
+}
+.ingestion-heading small {
+  font-size: 10px;
+  font-weight: 400;
+  margin-left: 6px;
+  color: #657357;
+}
+.ingestion-heading p,
+.reference-limit {
+  font-size: 12px;
+  line-height: 1.65;
+  color: #657357;
+}
+.ingestion-section h4 {
+  margin: 18px 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.reference-dropzone {
+  background: #f8f6ef;
+  border-color: #d9d2be;
+  padding: 20px;
+}
+.reference-dropzone h3 {
+  color: #6b6654;
+}
+.reference-dropzone p {
+  color: #706d60;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.reference-dropzone .text-button {
+  margin-top: 12px;
+}
+.reference-limit {
+  margin: 12px 0;
+}
+.reference-preview {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  background: #222;
+  border-radius: 8px;
+  margin: 12px 0;
+}
+.library-row small {
+  display: block;
+  font-size: 10px;
+  color: #657357;
+}
+.library-row span {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.project-inputs {
+  margin: 0 0 20px;
+  border: 1px solid #dce4d2;
+  border-radius: 9px;
+  background: #fffefa;
+  color: #526245;
+}
+.project-inputs > summary {
+  cursor: pointer;
+  padding: 14px 16px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.input-comparison {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 20px;
+  padding: 4px 16px 18px;
+}
+.input-comparison section {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.input-comparison h3 {
+  font-size: 14px;
+  margin: 12px 0;
+}
+.input-comparison p,
+.input-comparison li {
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 10px 0;
+}
+.input-comparison video {
+  display: block;
+  width: 100%;
+  max-height: 220px;
+  background: #222;
+  border-radius: 7px;
+}
+.input-comparison small {
+  font-size: 11px;
+  line-height: 1.6;
+  display: block;
+  color: #657357;
+}
+.reference-brief {
+  white-space: pre-wrap;
+  padding: 10px;
+  border-left: 2px solid #adba94;
+  background: #f5f8ee;
+}
+@media (max-width: 600px) {
+  .input-comparison {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

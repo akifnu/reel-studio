@@ -111,9 +111,10 @@ class Pipeline:
         sources, transcripts = {}, {}
         labels = {u["asset"]: u["name"] for u in self.db.list("upload")}
         lang = self.compiler._lang(plan, style) if plan else self.o._lang(job)
-        for key, aid in (plan.get("sources") or {}).items():
+        source_map = plan.get("sources") or {chr(65 + i): aid for i, aid in enumerate(job["inputs"]["sources"])}
+        for key, aid in source_map.items():
             a = self.assets.get(aid)
-            sources[key] = {"id": aid, "name": labels.get(aid, a.meta.get("name")), "url": self.url(jid, a.path),
+            sources[key] = {"id": aid, "name": meta.get("source_names", {}).get(aid, labels.get(aid, a.meta.get("name"))), "url": self.url(jid, a.path),
                             "width": a.info.get("width"), "height": a.info.get("height"), "duration": a.info.get("duration")}
             tr = self.fs.read_json(a.cache(f"transcript.{lang}.json")) or {}
             transcripts[key] = {"sentences": tr.get("sentences", []), "timing": tr.get("timing"), "lang": tr.get("lang")}
@@ -132,6 +133,9 @@ class Pipeline:
                 "revision": job["revision"], "generation": job["plan_generation"], "terminal": job["terminal"],
                 "busy": bool((self.o._attempt_info(job) or {}).get("running")), "needs": need,
                 "reels": reels, "style": style, "sources": sources, "transcripts": transcripts,
+                "reference": {"id": sample.id, "name": meta.get("reference_name") or labels.get(sample.id, sample.meta.get("name", sample.path.name)),
+                              "notes": meta.get("reference_notes", ""), "mode": "analyzed"}
+                             if sample and meta.get("reference_id") else None,
                 "sample_url": self.url(jid, sample.path) if sample else None,
                 "sample_review_url": self.url(jid, sample.cache("review.jpg")) if sample else None,
                 "music_url": self.url(jid, music.path) if music else None,
@@ -163,23 +167,33 @@ class Pipeline:
 
     def create(self, request):
         uploads = {}
-        for key in request.sources + ([request.sample] if request.sample else []) + ([request.music] if request.music else []):
+        selections = [(key, "source") for key in request.sources]
+        selections += [(request.sample, "sample")] if request.sample else []
+        selections += [(request.music, "music")] if request.music else []
+        for key, role in selections:
             record = self.db.get("upload", key)
             if not record:
                 raise ValueError("An uploaded file is missing. Upload it again before creating the project.")
+            if record["role"] != role:
+                raise ValueError("Keep reference reels, raw footage and background music in their respective inputs.")
             uploads[key] = self.assets.get(record["asset"])
         sources = [uploads[x] for x in request.sources]
         demo = any((self.fs.read_json(path) or {}).get("demo") is True for a in sources for path in a.dir.glob("transcript.*.json"))
         if any(not a.info.get("width") for a in sources):
             raise ValueError("Source files must contain video.")
+        if request.sample and not uploads[request.sample].info.get("width"):
+            raise ValueError("The reference must contain video.")
         sample = uploads[request.sample] if request.sample else sources[0]
         roles = {"source": [a.path for a in sources], "sample": [sample.path]}
         if request.music:
             roles["music"] = [uploads[request.music].path]
         job = self.o.create(roles=roles, count=request.count, duration=request.duration, lang=request.lang,
-                            notes=request.notes, execution={"encoder": request.encoder})
+                            notes="\n\n".join(x for x in (request.notes, "Reference style brief: " + request.reference_notes if request.sample and request.reference_notes else "") if x), execution={"encoder": request.encoder})
         jid = job["id"]
-        self.db.put("project", jid, {"id": jid, "name": request.name, "auto_plan": True, "created": time.time(), "demo": demo})
+        self.db.put("project", jid, {"id": jid, "name": request.name, "auto_plan": True, "created": time.time(), "demo": demo,
+                                     "reference_id": request.sample, "reference_notes": request.reference_notes if request.sample else "",
+                                     "reference_name": self.db.get("upload", request.sample)["name"] if request.sample else None,
+                                     "source_names": {uploads[key].id: self.db.get("upload", key)["name"] for key in request.sources}})
         # Uploaded media is already in the verified asset store. Finish ingest normally.
         context = self.o._context(job, "intake")
         ingested = self.o._w_intake(context)

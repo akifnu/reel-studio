@@ -151,6 +151,33 @@ class API(unittest.TestCase):
         self.assertEqual(job["plan_generation"],0)
         self.assertTrue((self.p.db.get("project",job["id"]) or {})["demo"])
 
+    def test_reference_and_raw_inputs_keep_their_roles_and_style_brief(self):
+        asset = self.p.assets.get(self.p.job(self.jid)["inputs"]["sources"][0])
+        ids = {}
+        for role in ("source", "sample"):
+            with asset.path.open("rb") as file:
+                response = self.client.post("/api/uploads", data={"role": role},
+                                            files={"file": (role + ".mp4", file, "video/mp4")})
+            self.assertEqual(response.status_code, 201, response.text)
+            ids[role] = response.json()["id"]
+        with patch.object(self.p.o, "start", return_value={"acknowledged": True}):
+            response = self.client.post("/api/projects", json={"name": "Reference + raw", "sources": [ids["source"]],
+                "sample": ids["sample"], "reference_notes": "Fast cuts and a question hook", "count": 1, "duration": 5})
+            self.settled_task(response)
+        jid = response.json()["id"]
+        job = self.p.job(jid)
+        self.assertFalse(job["steps"].get("analyze", {}).get("done"))
+        detail = self.p.detail(jid)
+        self.assertEqual(detail["reference"]["notes"], "Fast cuts and a question hook")
+        self.assertEqual(detail["reference"]["name"], "sample.mp4")
+        self.assertEqual(len(detail["sources"]), 1)
+        self.assertEqual(detail["sources"]["A"]["name"], "source.mp4")
+        self.assertIn("Reference style brief: Fast cuts and a question hook", self.p.o._rq(job)["notes"])
+        for payload in ({"name": "Wrong raw", "sources": [ids["sample"]]},
+                        {"name": "Wrong reference", "sources": [ids["source"]], "sample": ids["source"]}):
+            result = self.client.post("/api/projects", json=payload)
+            self.assertEqual(result.status_code, 422, result.text)
+
     def test_adding_music_updates_the_plan_and_withdraws_approval(self):
         jid=seed(self.p,preview=True,name="Music regression")
         detail=self.p.detail(jid)

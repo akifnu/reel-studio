@@ -36,6 +36,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
   const abort = useRef<AbortController | null>(null),
     dialog = useRef<HTMLDialogElement>(null);
   const [captionScript, setCaptionScript] = useState('');
+  const [referenceNotes, setReferenceNotes] = useState('');
   useEffect(() => {
     dialog.current?.showModal();
     void api<Upload[]>('/uploads')
@@ -88,6 +89,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
         name,
         sources: sources.map((x) => x.id),
         sample: sample?.id,
+        reference_notes: sample ? referenceNotes : '',
         music: music?.id,
         preset,
         count,
@@ -127,7 +129,8 @@ export default function NewProject({ onClose, onCreated }: Props) {
       </div>
       <h2>Let’s make a great reel.</h2>
       <p className="muted">
-        Start with your footage. You’ll review the storyboard before anything renders.
+        Two different inputs: a reel whose style you like, and your own footage to edit. Review the
+        storyboard and GIF before rendering.
       </p>
       <label className="field">
         Project name
@@ -140,100 +143,206 @@ export default function NewProject({ onClose, onCreated }: Props) {
           disabled={!!busy}
         />
       </label>
-      <div
-        className="dropzone"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          if (!busy) void files(e.dataTransfer.files, 'source');
-        }}
-      >
-        <UploadCloud size={29} />
-        <h3>Drop your footage here</h3>
-        <p>
-          {browserMode
-            ? 'H.264/AAC MP4 works best · up to 100 MB/file · 200 MB total · 5 minutes/source'
-            : 'MP4, MOV, MKV or WebM · up to 4 GB per file'}
-        </p>
-        <label className="button dark">
-          Choose videos
-          <input
-            type="file"
-            accept="video/*,.mkv"
-            multiple
-            disabled={!!busy}
-            onChange={(e) => {
-              if (e.target.files) void files(e.target.files, 'source');
-              e.target.value = '';
-            }}
+      <section className="ingestion-section" aria-labelledby="reference-heading">
+        <div className="ingestion-heading">
+          <span className="ingestion-step">1</span>
+          <div>
+            <h3 id="reference-heading">
+              Reference reel <small>Optional</small>
+            </h3>
+            <p>
+              The editing style you want to recreate — pacing, colour tone, captions and opening
+              hook.
+            </p>
+          </div>
+        </div>
+        <div
+          className="dropzone reference-dropzone"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (!busy) void files(Array.from(e.dataTransfer.files).slice(0, 1), 'sample');
+          }}
+        >
+          <Film size={25} />
+          <h3>{sample ? sample.name : 'Add an example of the style you like'}</h3>
+          <p>Style inspiration only. Its picture, speech and music are never added to your reel.</p>
+          <label className="button secondary">
+            {sample ? 'Replace reference' : 'Choose reference reel'}
+            <input
+              aria-label="Reference reel"
+              type="file"
+              accept="video/*,.mkv"
+              disabled={!!busy}
+              onChange={(e) => {
+                if (e.target.files) void files(e.target.files, 'sample');
+                e.target.value = '';
+              }}
+            />
+          </label>
+          {sample && (
+            <button className="text-button" disabled={!!busy} onClick={() => setSample(null)}>
+              Remove reference
+            </button>
+          )}
+        </div>
+        {sample?.preview_url && (
+          <video
+            className="reference-preview"
+            aria-label="Reference reel preview"
+            src={sample.preview_url}
+            controls
+            playsInline
+            preload="metadata"
           />
-        </label>
-      </div>
-      {sources.length > 0 && (
-        <div className="upload-list">
-          {sources.map((s) => (
-            <div key={s.id}>
-              <Film size={17} />
-              <span>
-                {s.name}
-                <small>{bytes(s.bytes)}</small>
-              </span>
-              <button
-                aria-label={`Remove ${s.name}`}
-                className="icon-button"
+        )}
+        <p className="field-hint reference-limit">
+          {browserMode
+            ? 'Free browser mode: watch the reference and match it manually with the caption, hook, cut and motion controls. It does not automatically detect pacing, copy colours or extract the hook.'
+            : 'The server analyzes this reference separately. Review the measured style before it is applied to your raw footage.'}
+        </p>
+        {sample && (
+          <label className="field">
+            What do you like about this edit?
+            <textarea
+              aria-label="Reference style notes"
+              rows={2}
+              maxLength={6000}
+              value={referenceNotes}
+              disabled={!!busy}
+              onChange={(e) => setReferenceNotes(e.target.value)}
+              placeholder="e.g. quick cuts, warm colours, bold yellow captions, a question in the first 2 seconds"
+            />
+            <small>
+              {browserMode
+                ? 'Saved as your style brief for review; these notes do not automatically change the video.'
+                : 'Guidance for planning and reviewing the edit.'}
+            </small>
+          </label>
+        )}
+      </section>
+      <section className="ingestion-section" aria-labelledby="footage-heading">
+        <div className="ingestion-heading">
+          <span className="ingestion-step">2</span>
+          <div>
+            <h3 id="footage-heading">
+              Raw footage <small>Required</small>
+            </h3>
+            <p>
+              Your original recordings. Only these clips supply the picture and speech for your
+              finished reel.
+            </p>
+          </div>
+        </div>
+        <div
+          className="dropzone"
+          onDragOver={(e) => e.preventDefault()}
+          onDrop={(e) => {
+            e.preventDefault();
+            if (!busy) void files(e.dataTransfer.files, 'source');
+          }}
+        >
+          <UploadCloud size={29} />
+          <h3>Drop your raw footage here</h3>
+          <p>
+            {browserMode
+              ? 'H.264/AAC MP4 works best · up to 100 MB/file · 200 MB total · 5 minutes/source'
+              : 'MP4, MOV, MKV or WebM · up to 4 GB per file'}
+          </p>
+          <label className="button dark">
+            Choose raw footage
+            <input
+              aria-label="Raw footage"
+              type="file"
+              accept="video/*,.mkv"
+              multiple
+              disabled={!!busy}
+              onChange={(e) => {
+                if (e.target.files) void files(e.target.files, 'source');
+                e.target.value = '';
+              }}
+            />
+          </label>
+        </div>
+        {sources.length > 0 && (
+          <div className="upload-list">
+            {sources.map((s) => (
+              <div key={s.id}>
+                <Film size={17} />
+                <span>
+                  {s.name}
+                  <small>{bytes(s.bytes)}</small>
+                </span>
+                <button
+                  aria-label={`Remove ${s.name}`}
+                  className="icon-button"
+                  disabled={!!busy}
+                  onClick={() => setSources(sources.filter((x) => x.id !== s.id))}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        {!browserMode && (
+          <details className="import-options">
+            <summary>
+              <LinkIcon size={14} />
+              Or import a video link
+            </summary>
+            <div className="url-row">
+              <input
+                aria-label="Video URL"
+                type="url"
+                placeholder="https://youtube.com/watch?v=…"
+                value={url}
+                onChange={(e) => setUrl(e.target.value)}
                 disabled={!!busy}
-                onClick={() => setSources(sources.filter((x) => x.id !== s.id))}
+              />
+              <button
+                className="button secondary"
+                disabled={!!busy || !url}
+                onClick={() => void importUrl()}
               >
-                <X size={14} />
+                Import
               </button>
             </div>
-          ))}
-        </div>
-      )}
-      {!browserMode && (
-        <details className="import-options">
-          <summary>
-            <LinkIcon size={14} />
-            Or import a video link
-          </summary>
-          <div className="url-row">
-            <input
-              aria-label="Video URL"
-              type="url"
-              placeholder="https://youtube.com/watch?v=…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              disabled={!!busy}
-            />
-            <button
-              className="button secondary"
-              disabled={!!busy || !url}
-              onClick={() => void importUrl()}
-            >
-              Import
-            </button>
-          </div>
-          <p className="field-hint">
-            Optional yt-dlp importer. Imports preserve available source quality.
-          </p>
-        </details>
-      )}
+            <p className="field-hint">
+              Optional yt-dlp importer. Imports preserve available source quality.
+            </p>
+          </details>
+        )}
+      </section>
       {library.length > 0 && (
         <details className="import-options">
           <summary>Use a previously uploaded file</summary>
           <div className="library-list">
             {library
-              .filter((x) => browserMode || x.role === 'source')
+              .filter((x) => ['source', 'sample', 'music'].includes(x.role))
               .map((x) => (
                 <div className="library-row" key={x.id}>
                   <button
-                    disabled={!!busy || sources.some((s) => s.id === x.id)}
+                    disabled={!!busy || (x.role === 'source' && sources.some((s) => s.id === x.id))}
                     onClick={() =>
-                      x.role === 'music' ? setMusic(x) : setSources((old) => [...old, x])
+                      x.role === 'sample'
+                        ? setSample(x)
+                        : x.role === 'music'
+                          ? setMusic(x)
+                          : setSources((old) => [...old, x])
                     }
                   >
                     <Film size={14} />
-                    {x.name}
+                    <span>
+                      {x.name}
+                      <small>
+                        {x.role === 'sample'
+                          ? 'Reference style'
+                          : x.role === 'music'
+                            ? 'Background music'
+                            : 'Raw footage'}
+                      </small>
+                    </span>
                     <Plus size={13} />
                   </button>
                   {browserMode && (
@@ -247,6 +356,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
                           setLibrary((old) => old.filter((y) => y.id !== x.id));
                           setSources((old) => old.filter((y) => y.id !== x.id));
                           if (music?.id === x.id) setMusic(null);
+                          if (sample?.id === x.id) setSample(null);
                         } catch (e) {
                           setError((e as Error).message);
                         }
@@ -260,49 +370,42 @@ export default function NewProject({ onClose, onCreated }: Props) {
           </div>
         </details>
       )}
-      <div className="divider" />
-      <h3>Choose your starting style</h3>
-      <div className="preset-grid">
-        {[
-          ['clean', 'Aa', 'Clean', 'Clear & considered'],
-          ['bold', 'AA', 'Bold', 'Make a statement'],
-          ['minimal', 'Aa', 'Minimal', 'Less, beautifully'],
-        ].map(([id, aa, title, sub]) => (
-          <button
-            key={id}
-            disabled={!!busy}
-            className={`preset ${preset === id && !sample ? 'selected' : ''} ${id}`}
-            onClick={() => {
-              setPreset(id);
-              setSample(null);
-            }}
-          >
-            <span>{aa}</span>
-            <strong>{title}</strong>
-            <small>{sub}</small>
-            {preset === id && !sample && <Check size={13} />}
-          </button>
-        ))}
-      </div>
-      <div className="extra-uploads">
-        {!browserMode && (
-          <label className={sample ? 'added' : ''}>
-            <Film size={17} />
-            {sample ? sample.name : 'Use a reference reel'}
-            <input
-              type="file"
-              accept="video/*,.mkv"
+      <section className="ingestion-section">
+        <h4>
+          {sample
+            ? browserMode
+              ? 'Starting caption preset — adjust to match your reference'
+              : 'Fallback caption preset'
+            : 'No reference? Start with a caption preset'}
+        </h4>
+        <div className="preset-grid">
+          {[
+            ['clean', 'Aa', 'Clean', 'Clear & considered'],
+            ['bold', 'AA', 'Bold', 'Make a statement'],
+            ['minimal', 'Aa', 'Minimal', 'Less, beautifully'],
+          ].map(([id, aa, title, sub]) => (
+            <button
+              key={id}
               disabled={!!busy}
-              onChange={(e) => {
-                if (e.target.files) void files(e.target.files, 'sample');
+              className={`preset ${preset === id ? 'selected' : ''} ${id}`}
+              onClick={() => {
+                setPreset(id);
               }}
-            />
-          </label>
-        )}
+            >
+              <span>{aa}</span>
+              <strong>{title}</strong>
+              <small>{sub}</small>
+              {preset === id && <Check size={13} />}
+            </button>
+          ))}
+        </div>
+      </section>
+      <div className="extra-uploads">
         <label className={music ? 'added' : ''}>
           <Music2 size={17} />
           {music ? music.name : 'Add background music'}
           <input
+            aria-label="Background music"
             type="file"
             accept="audio/*"
             disabled={!!busy}
@@ -382,10 +485,10 @@ export default function NewProject({ onClose, onCreated }: Props) {
         </label>
       )}
       <label className="field">
-        Anything we should know?
+        Story instructions
         <textarea
           aria-label="Project instructions"
-          placeholder="The audience, the story, the moments worth keeping…"
+          placeholder="What is your reel about? The audience, story and moments to keep…"
           rows={2}
           value={notes}
           disabled={!!busy}
@@ -418,7 +521,9 @@ export default function NewProject({ onClose, onCreated }: Props) {
       <div className="modal-foot">
         <p>
           <span className="live-dot" />
-          Storyboard first. Your approval, always.
+          {sources.length
+            ? `${sources.length} raw clip${sources.length === 1 ? '' : 's'} · ${sample ? '1 style reference' : 'caption preset'} · storyboard first`
+            : 'Add raw footage to continue. A reference alone cannot create a reel.'}
         </p>
         <button
           className="button orange"

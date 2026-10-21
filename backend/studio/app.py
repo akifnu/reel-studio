@@ -244,7 +244,9 @@ def create_app(settings=None):
                          notes=rq.get("notes"), lang=rq.get("lang"))
         meta = db.get("project", jid) or {}
         db.put("project", new["id"], {"id": new["id"], "name": meta.get("name", jid) + " (copy)",
-                                      "auto_plan": True, "demo": meta.get("demo", False)})
+                                      "auto_plan": True, "demo": meta.get("demo", False),
+                                      "reference_id": meta.get("reference_id"), "reference_notes": meta.get("reference_notes", ""),
+                                      "reference_name": meta.get("reference_name"), "source_names": meta.get("source_names", {})})
         if old.get("plan") and old.get("style_version"):
             context = p.o._context(new, "intake")
             result = p.o._w_intake(context)

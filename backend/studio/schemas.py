@@ -11,6 +11,7 @@ class ProjectCreate(Strict):
     name: str = Field(min_length=1, max_length=120)
     sources: list[str] = Field(min_length=1, max_length=20)
     sample: str | None = None
+    reference_notes: str = Field(default="", max_length=6000)
     music: str | None = None
     count: int = Field(default=3, ge=1, le=50)
     duration: float = Field(default=30, ge=3, le=180)

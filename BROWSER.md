@@ -4,7 +4,14 @@ Open https://reel-studio-try-akifnu.fluffyfrog9.chatgpt.site with the owner's
 ChatGPT account. Processing uses your device; no Render account or paid API is
 required. The server edition remains available in this repository.
 
-1. Choose **New project**, select local videos, and choose a caption preset.
+1. Choose **New project**. **Reference reel** is an optional example of the editing
+   style you like; **Raw footage** is the required content to edit. They have
+   separate uploads and library labels. A reference alone cannot create a reel.
+   In the browser, watch the reference, choose a starting caption preset and write
+   a style brief. Match the cut pacing, captions, motion and hook manually with the
+   editor controls; references are not automatically analyzed or colour-matched.
+   Expand **Project inputs** to watch the reference and review your brief while
+   editing. Reference picture, speech and music never enter the output.
 2. Optionally enter a caption script (one line per caption). These timings are
    evenly spaced, not speech measurements. Blank input produces no invented speech.
 3. Alternatively, press **Auto captions (English)**. A pinned Whisper tiny
@@ -41,7 +48,7 @@ required. The server edition remains available in this repository.
 
 Use short clips on a modern browser. Desktop is faster; phone memory, codecs and
 background suspension vary. H.264/AAC MP4 works best. Limits: 100 MB/file,
-200 MB total local sources, up to five minutes/source, 1–3 reels,
+200 MB total local inputs (including reference and music), up to five minutes/source, 1–3 reels,
 60 seconds/reel, 120 seconds total, and 20 segments/reel. English auto captions
 support a selected source span of up to two minutes. Each GIF is capped at 2 MB.
 
