@@ -1,0 +1,12 @@
+.git
+.env
+**/.env
+.venv
+.studio
+**/__pycache__
+frontend/node_modules
+frontend/dist
+frontend/test-results
+frontend/playwright-report
+*.zip
+*.bundle

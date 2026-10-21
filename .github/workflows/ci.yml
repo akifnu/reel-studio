@@ -1,0 +1,122 @@
+name: Reel Studio CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+concurrency:
+  group: studio-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  app:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      REEL_PIPELINE_PATH: ${{ github.workspace }}/DSprojects/reel-pipeline
+      REELKIT_DATA: ${{ github.workspace }}/studio/.studio/demo-data
+      STUDIO_ROOT: ${{ github.workspace }}/studio/.studio
+      PYTHONPATH: ${{ github.workspace }}/studio/backend
+      REELKIT_OFFLINE: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      OMP_NUM_THREADS: '2'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: studio
+      - name: Read pinned engine revision
+        run: echo "CORE_REF=$(cat studio/PIPELINE_VERSION)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: akifnu/DSprojects
+          ref: ${{ env.CORE_REF }}
+          path: DSprojects
+          token: ${{ secrets.CORE_REPO_TOKEN || github.token }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: |
+            studio/backend/requirements.txt
+            DSprojects/reel-pipeline/requirements*.txt
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: studio/frontend/package-lock.json
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core fonts-liberation
+          python -m pip install -r studio/backend/requirements.txt -r DSprojects/reel-pipeline/requirements.txt -r DSprojects/reel-pipeline/requirements-url.txt
+          python -m pip install --force-reinstall --no-deps opencv-python-headless==5.0.0.93
+          npm --prefix studio/frontend ci
+      - name: Python syntax and API regressions
+        working-directory: studio
+        run: |
+          python -m compileall -q backend
+          python -m unittest discover -s backend/tests -v
+      - name: Frontend checks
+        run: |
+          npm --prefix studio/frontend test
+          npm --prefix studio/frontend run build
+      - name: Prepare browser fixture
+        working-directory: studio
+        run: |
+          python -m studio.demo
+          npx --prefix frontend playwright install --with-deps chromium
+      - name: Browser regressions against the real API
+        working-directory: studio
+        run: |
+          set -e
+          python -m studio --port 8000 >server.log 2>&1 &
+          studio_pid=$!
+          trap 'kill "$studio_pid" 2>/dev/null || true' EXIT
+          python - <<'PY'
+          import time, urllib.request
+          for _ in range(60):
+              try:
+                  urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=1)
+                  break
+              except OSError:
+                  time.sleep(.5)
+          else:
+              raise SystemExit('Server did not become ready')
+          PY
+          npm --prefix frontend run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: studio-debug
+          path: |
+            studio/frontend/test-results
+            studio/frontend/playwright-report
+            studio/server.log
+  container:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: studio
+      - name: Read engine revision
+        run: echo "CORE_REF=$(cat studio/PIPELINE_VERSION)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v4
+        with:
+          repository: akifnu/DSprojects
+          ref: ${{ env.CORE_REF }}
+          path: DSprojects
+          token: ${{ secrets.CORE_REPO_TOKEN || github.token }}
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate Compose
+        working-directory: studio
+        env:
+          STUDIO_TOKEN: ci-configuration-only
+        run: docker compose config --quiet
+      - name: Build self-hosted image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./studio
+          file: ./studio/Dockerfile
+          build-contexts: |
+            pipeline=./DSprojects/reel-pipeline
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

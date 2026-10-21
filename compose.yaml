@@ -1,0 +1,22 @@
+services:
+  studio:
+    build:
+      context: .
+      additional_contexts:
+        pipeline: ${REEL_PIPELINE_PATH:-../DSprojects/reel-pipeline}
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      STUDIO_TOKEN: ${STUDIO_TOKEN:?Set STUDIO_TOKEN in .env before running Docker}
+      STUDIO_ALLOWED_HOSTS: ${STUDIO_ALLOWED_HOSTS:-localhost,127.0.0.1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      STUDIO_AI_URL: ${STUDIO_AI_URL:-https://api.openai.com/v1}
+      STUDIO_AI_MODEL: ${STUDIO_AI_MODEL:-gpt-4.1-mini}
+    volumes:
+      - studio-data:/data
+      - ${REEL_PIPELINE_PATH:-../DSprojects/reel-pipeline}/.models:/opt/reel-pipeline/.models:ro
+      - ${REEL_PIPELINE_PATH:-../DSprojects/reel-pipeline}/.tools:/opt/reel-pipeline/.tools:ro
+    restart: unless-stopped
+    stop_grace_period: 20s
+volumes:
+  studio-data:
