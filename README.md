@@ -1,5 +1,13 @@
 # Reel Studio
 
+[**Open the browser preview →**](https://reel-studio-try-akifnu.fluffyfrog9.chatgpt.site)
+
+The preview is private to its owner and needs no installation or separate hosting
+account. Try captions, framing, cuts and comments with generated sample footage.
+Changes stay in your browser. Its sample GIFs/stills are pre-generated; uploads,
+transcription, automatic GIF regeneration, full rendering and exports require
+the media backend described below. No Render service is required for this preview.
+
 A storyboard-first video workspace for **reel-pipeline**. Upload footage, refine
 the edit, review stills and GIFs, then explicitly approve the exact storyboard
 before full video rendering starts.
