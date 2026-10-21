@@ -2,7 +2,7 @@
 # docker build --build-context pipeline=../DSprojects/reel-pipeline -t reel-studio .
 FROM node:22-bookworm-slim AS frontend
 WORKDIR /src/frontend
-COPY frontend/package*.json ./
+COPY frontend/package*.json frontend/.npmrc ./
 RUN npm ci
 COPY frontend/ ./
 RUN npm run build
