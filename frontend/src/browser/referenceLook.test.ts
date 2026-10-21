@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { gradePixel, matchColour, pacingFromFrames, paceSegments } from './referenceLook';
+import {
+  gradePixel,
+  matchColour,
+  pacingFromFrames,
+  paceSegments,
+  sceneSignature,
+} from './referenceLook';
 import { editingReply } from './editingAssistant';
 import type { Project, Reel } from '../types';
 const project = {
@@ -27,8 +33,8 @@ describe('measured look and cut transfer', () => {
       { mean: [100, 100, 100], deviation: [40, 40, 40], saturation: 0.3 },
       { mean: [130, 110, 75], deviation: [40, 40, 40], saturation: 0.3 },
     );
-    expect(grade.offset).toEqual([28, 10, -25]);
-    expect(gradePixel([100, 100, 100], grade)).toEqual([128, 110, 75]);
+    expect(grade.offset).toEqual([30, 10, -25]);
+    expect(gradePixel([100, 100, 100], grade)).toEqual([130, 110, 75]);
     expect(gradePixel([100, 100, 100], { ...grade, strength: 0 })).toEqual([100, 100, 100]);
   });
   it('detects actual histogram scene changes and leaves static footage alone', () => {
@@ -42,6 +48,28 @@ describe('measured look and cut transfer', () => {
     const segments = paceSegments(project, reel, 0.8);
     expect(segments.reduce((n, s) => n + s.e! - s.s!, 0)).toBeCloseTo(2.2);
     expect(segments.every((s) => s.e! <= 1.2 || s.s! >= 1.5)).toBe(true);
+  });
+  it('detects same-palette spatial jump cuts that a global colour histogram misses', () => {
+    const make = (reverse: boolean, caption = false) => {
+      const pixels = new Uint8ClampedArray(64 * 96 * 4);
+      for (let y = 0; y < 96; y++)
+        for (let x = 0; x < 64; x++) {
+          const value = x < 32 !== reverse ? 75 : 150,
+            k = (y * 64 + x) * 4;
+          pixels[k] = pixels[k + 1] = pixels[k + 2] = caption && y > 60 && y < 80 ? 240 : value;
+          pixels[k + 3] = 255;
+        }
+      return sceneSignature(pixels, 64, 96);
+    };
+    const a = make(false),
+      b = make(true);
+    expect(a.slice(0, 48)).toEqual(b.slice(0, 48));
+    const found = pacingFromFrames([0, 0.125, 0.25, 0.375, 0.5, 0.625], [a, a, a, b, b, b], 0.75);
+    expect(found.cuts).toHaveLength(1);
+    expect(found.cuts[0]).toBeCloseTo(0.3125);
+    expect(
+      pacingFromFrames([0, 0.125, 0.25, 0.375], [a, make(false, true), a, a], 0.5).confidence,
+    ).toBe('no-cuts');
   });
 });
 describe('editing conversation', () => {

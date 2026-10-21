@@ -36,6 +36,7 @@ import CaptionStylePreview from './CaptionStylePreview';
 import Player from './Player';
 import Inspector from './Inspector';
 import ControlRoom from './ControlRoom';
+import ChatGPTConnection from './ChatGPTConnection';
 import { browserMode } from './features';
 
 export default function App() {
@@ -626,24 +627,46 @@ export default function App() {
               </div>
             )}
             {browserMode && selected && (
-              <ControlRoom
-                key={project.id}
+              <ChatGPTConnection
+                key={'chatgpt-' + project.id}
                 project={project}
-                reel={selected}
-                disabled={disabled || working || dirty}
                 dirty={dirty}
-                onAction={async (action, body) => {
-                  await run(() => api(`/projects/${project.id}/${action}`, 'POST', body), true);
-                }}
-                onOpen={(tab) => {
-                  setTab(tab);
-                  requestAnimationFrame(() =>
-                    document
-                      .querySelector('[aria-label="Reel settings"]')
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
-                  );
+                onChanged={async () => {
+                  await Promise.all([refresh(), loadProjects()]);
                 }}
               />
+            )}
+            {browserMode && selected && (
+              <details
+                className="agent-manual-tools"
+                open={localStorage.getItem('reel-studio-manual-tools') === 'open'}
+                onToggle={(e) =>
+                  localStorage.setItem(
+                    'reel-studio-manual-tools',
+                    e.currentTarget.open ? 'open' : 'closed',
+                  )
+                }
+              >
+                <summary>Manual editing controls</summary>
+                <ControlRoom
+                  key={project.id}
+                  project={project}
+                  reel={selected}
+                  disabled={disabled || working || dirty}
+                  dirty={dirty}
+                  onAction={async (action, body) => {
+                    await run(() => api(`/projects/${project.id}/${action}`, 'POST', body), true);
+                  }}
+                  onOpen={(tab) => {
+                    setTab(tab);
+                    requestAnimationFrame(() =>
+                      document
+                        .querySelector('[aria-label="Reel settings"]')
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                    );
+                  }}
+                />
+              </details>
             )}
             {browserMode && project.reference && (
               <section className="reference-caption-status" aria-label="Reference caption status">

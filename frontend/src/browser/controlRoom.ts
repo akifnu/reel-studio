@@ -12,7 +12,7 @@ import type {
 import { merge } from '../utils';
 import { compile } from './compositor';
 import { editingReply } from './editingAssistant';
-import { clamp, sourceRanges } from './referenceLook';
+import { averageLooks, clamp, matchColour, sourceRanges } from './referenceLook';
 import { validatePreset } from './presets';
 const identity = (): ColourGrade => ({
   gain: [1, 1, 1],
@@ -102,9 +102,17 @@ function changesFor(
         changes: { editing: { colour: identity() } },
         explanation: 'Remove the colour correction.',
       };
+    const sourceLooks = [...new Set(r.segments.map((s) => s.src))]
+      .map((src) => p.reference?.source_looks?.[src])
+      .filter((v): v is NonNullable<typeof v> => !!v);
+    const sourceLook = sourceLooks.length ? averageLooks(sourceLooks) : p.reference?.source_look;
+    const measured =
+      p.reference?.caption_analysis?.look && sourceLook
+        ? matchColour(sourceLook, p.reference.caption_analysis.look)
+        : p.reference?.matched_colour;
     const grade =
       q.action === 'copy'
-        ? p.reference?.matched_colour
+        ? measured
         : r.editing?.colour || p.reference?.matched_colour || identity();
     if (!grade) throw new Error('Analyze a reference reel before copying its colour tone.');
     const strength = q.strength ?? 1;
@@ -146,7 +154,7 @@ function changesFor(
         throw new Error(
           'No clear reference cuts were detected. Set a shot length instead; the current timing is kept.',
         );
-      const end = a.window_seconds || 5,
+      const end = a.pacing.window_seconds || a.window_seconds || 5,
         points = [0, ...a.pacing.cuts, end];
       pattern = points.slice(1).map((t, i) => clamp(t - points[i], 0.35, 5));
       target = a.pacing.median_shot;

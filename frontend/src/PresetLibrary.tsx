@@ -27,6 +27,7 @@ export default function PresetLibrary({ project, reelId, disabled, dirty, onPrev
       api<ProjectSummary[]>('/projects'),
     ]);
     setPresets(items);
+    setSelected((current) => (items.some((p) => p.id === current) ? current : items[0]?.id || ''));
     setProjects(list);
     return items;
   }
@@ -84,7 +85,12 @@ export default function PresetLibrary({ project, reelId, disabled, dirty, onPrev
       const saved = await api<EditPreset>('/edit-presets', 'POST', {
         project_id: sourceId,
         reel_id: sourceReel,
-        name,
+        name:
+          name.trim() ||
+          `${chosenSource?.name || 'My reel'} · ${parts === 'colour' ? 'tone' : parts === 'pacing' ? 'pacing' : 'tone & pacing'}`.slice(
+            0,
+            80,
+          ),
         parts,
       });
       await refresh();
@@ -200,17 +206,17 @@ export default function PresetLibrary({ project, reelId, disabled, dirty, onPrev
           </select>
         </label>
         <label className="field">
-          Preset name
+          Preset name (optional)
           <input
             aria-label="Preset name"
-            placeholder="Warm & punchy"
+            placeholder="Uses the source project name"
             maxLength={80}
             value={name}
             disabled={working}
             onChange={(e) => setName(e.target.value)}
           />
         </label>
-        <button className="button dark" disabled={saving || !name.trim()}>
+        <button className="button dark" disabled={saving}>
           <BookmarkPlus size={14} /> Save preset
         </button>
       </form>
@@ -233,7 +239,8 @@ export default function PresetLibrary({ project, reelId, disabled, dirty, onPrev
             <option value="">{presets.length ? 'Choose a preset…' : 'No saved presets yet'}</option>
             {presets.map((p) => (
               <option key={p.id} value={p.id}>
-                {p.name} · {p.colour && p.pacing ? 'tone + pacing' : p.colour ? 'tone' : 'pacing'}
+                {p.name} · {p.builtin ? 'starter · ' : ''}
+                {p.colour && p.pacing ? 'tone + pacing' : p.colour ? 'tone' : 'pacing'}
               </option>
             ))}
           </select>
@@ -264,7 +271,7 @@ export default function PresetLibrary({ project, reelId, disabled, dirty, onPrev
         </button>
         <button
           className="text-button"
-          disabled={!preset || working}
+          disabled={!preset || working || preset.builtin}
           onClick={() =>
             void task(async () => {
               await api(`/edit-presets/${selected}`, 'DELETE');

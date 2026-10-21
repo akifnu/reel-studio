@@ -1,6 +1,38 @@
 import type { EditPreset, Project, Reel } from '../types';
 import { clamp } from './referenceLook';
 export type PresetParts = 'both' | 'colour' | 'pacing';
+export const BUILTIN_PRESETS: EditPreset[] = [
+  {
+    id: 'builtin-warm-punchy',
+    version: 1,
+    builtin: true,
+    name: 'Warm & punchy',
+    created: 0,
+    source: { project: 'Reel Studio starter presets', reel: 'Warm tone · fast rhythm' },
+    colour: { gain: [1.04, 1, 0.97], offset: [10, 1, -8], saturation: 1.12, strength: 0.85 },
+    pacing: { target: 0.8, reframes: true, pattern: [0.6, 0.8, 1] },
+  },
+  {
+    id: 'builtin-clean-calm',
+    version: 1,
+    builtin: true,
+    name: 'Clean & calm',
+    created: 0,
+    source: { project: 'Reel Studio starter presets', reel: 'Neutral tone · slower rhythm' },
+    colour: { gain: [1.02, 1.02, 1.02], offset: [2, 2, 2], saturation: 0.95, strength: 0.8 },
+    pacing: { target: 2.5, reframes: false, pattern: [2, 3] },
+  },
+  {
+    id: 'builtin-cool-crisp',
+    version: 1,
+    builtin: true,
+    name: 'Cool & crisp',
+    created: 0,
+    source: { project: 'Reel Studio starter presets', reel: 'Cool tone · snappy rhythm' },
+    colour: { gain: [0.98, 1, 1.05], offset: [-5, 1, 7], saturation: 1.05, strength: 0.8 },
+    pacing: { target: 1, reframes: true, pattern: [1, 0.7, 1.3] },
+  },
+];
 const number = (v: unknown, min: number, max: number) =>
   typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 const vector = (v: unknown, min: number, max: number) =>

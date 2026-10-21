@@ -52,4 +52,10 @@ const r = spawnSync('npm', ['run', 'build'], {
   shell: process.platform === 'win32',
   env: { ...process.env, VITE_STUDIO_MODE: 'browser' },
 });
+if (r.status === 0) {
+  mkdirSync('dist/server', { recursive: true });
+  mkdirSync('dist/.openai', { recursive: true });
+  copyFileSync('../site-worker/index.js', 'dist/server/index.js');
+  copyFileSync('../.openai/hosting.json', 'dist/.openai/hosting.json');
+}
 process.exit(r.status ?? 1);

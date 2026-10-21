@@ -273,6 +273,7 @@ export async function board(
         videos.set(shot.source, await loadVideo(await blobURL(a.id, a.blob), signal));
       }
     }
+    let toneCaptured = false;
     async function image(t: number) {
       checkAbort(signal);
       const shot =
@@ -300,7 +301,12 @@ export async function board(
         shot.duration,
       );
       c.drawImage(video, crop.x, crop.y, crop.sw, crop.sh);
+      const before = !toneCaptured ? canvas.toDataURL('image/jpeg', 0.7) : undefined;
       gradeCanvas(canvas, r.editing?.colour);
+      if (before) {
+        r.tone_preview = { before, after: canvas.toDataURL('image/jpeg', 0.7) };
+        toneCaptured = true;
+      }
       const text = textAt(r, t);
       if (text) {
         const active =

@@ -3560,3 +3560,13 @@ input[type='checkbox'] {
 .preset-apply>.field { flex:1 1 250px; }.preset-apply .text-button { font-size:11px; min-height:38px; }
 @media(max-width:1150px) { .preset-save { grid-template-columns:repeat(2,minmax(0,1fr)); }.preset-save>.button { grid-column:1/-1; } }
 @media(max-width:620px) { .preset-library { padding:14px; }.preset-heading { flex-direction:column; }.preset-save { grid-template-columns:minmax(0,1fr); }.preset-apply>.button { flex:1 1 100%; } }
+
+.control-feedback:empty { display:none; }.control-feedback .control-notice { display:flex; align-items:center; gap:9px; flex-wrap:wrap; }.control-feedback .text-button { margin-left:auto; }
+.tone-comparison { display:grid; grid-template-columns:1fr 1fr; gap:8px; }.tone-comparison figure { margin:0; min-width:0; }.tone-comparison img { width:100%; aspect-ratio:9/12; object-fit:cover; border-radius:7px; background:#e1e5dc; }.tone-comparison figcaption { font-size:10px; margin-top:5px; color:#68725c; }
+
+.chatgpt-connection { border:1px solid #b8c8a6; background:#f4f8ee; border-radius:14px; padding:24px; margin-bottom:20px; }
+.chatgpt-connection h2 { margin:8px 0; font-size:26px; letter-spacing:-.04em; }.chatgpt-connection p { color:#64705b; font-size:13px; line-height:1.6; }.chatgpt-connection-actions { display:flex; gap:10px; flex-wrap:wrap; margin:18px 0; }.chatgpt-connection-actions .button { font-size:12px; }.chatgpt-connection textarea { font-size:12px; width:100%; }.chatgpt-connection small { color:#76836b; font-size:11px; line-height:1.6; display:block; }.chatgpt-connection .field { margin-bottom:15px; }
+@media(max-width:620px) { .chatgpt-connection { padding:18px; }.chatgpt-connection-actions>.button { width:100%; } }
+.agent-manual-tools { margin-bottom:20px; }.agent-manual-tools>summary { padding:12px 0; cursor:pointer; font-size:12px; font-weight:600; color:#6d7b61; }
+.agent-style-menu { margin:16px 0; }.agent-style-menu summary { cursor:pointer; font-size:12px; font-weight:600; color:#586d49; }.agent-style-menu>div { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,180px)); gap:12px; margin:12px 0; }.agent-style-menu article { border:1px solid #dde5d4; border-radius:9px; padding:10px; }.agent-style-menu img { width:100%; border-radius:6px; margin-bottom:8px; }.agent-style-menu strong { font-size:12px; }.agent-style-menu article p { font-size:11px; }
+.control-proposal:focus { outline:2px solid #93ad74; outline-offset:4px; }

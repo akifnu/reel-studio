@@ -19,11 +19,11 @@ import type { LocalAsset, LocalProject } from './store';
 import { board, checkAbort, compile, loadVideo, releaseVideo } from './compositor';
 import { outputBlob, render, stopEngine } from './engine';
 import { REFERENCE_VERSION } from './referenceStyle';
-import { averageLooks, matchColour, sourceLook } from './referenceLook';
+import { analyzePacing, averageLooks, matchColour, sourceLook } from './referenceLook';
 import { editingReply } from './editingAssistant';
 import { loadCustomFonts, fontFamilies } from './fonts';
 import { controlPreview } from './controlRoom';
-import { capturePreset, validatePreset } from './presets';
+import { BUILTIN_PRESETS, capturePreset, validatePreset } from './presets';
 const MAX_FILE = 100 * 1024 ** 2,
   MAX_TOTAL = 200 * 1024 ** 2;
 const tasks = new Map<string, { status: string; error?: string; result?: unknown }>();
@@ -104,7 +104,11 @@ function invalidate(p: LocalProject) {
   for (const r of p.reels)
     r.render = { url: null, status: null, qc_verdict: null, issues: [], error: null, sha256: null };
 }
-async function launch(id: string, operation: 'storyboard' | 'render' | 'transcribe' | 'reference') {
+async function launch(
+  id: string,
+  operation: 'storyboard' | 'render' | 'transcribe' | 'reference' | 'pacing' | 'colour',
+  options: Record<string, any> = {},
+) {
   const p = await project(id);
   if (p.busy) throw new Error('This project is already processing.');
   if (running.size)
@@ -125,7 +129,11 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
         ? 'Preparing your approved render…'
         : operation === 'reference'
           ? 'Detecting and copying reference captions…'
-          : 'Preparing optional English transcription…';
+          : operation === 'colour'
+            ? 'Measuring selected footage against the reference colour…'
+            : operation === 'pacing'
+              ? 'Measuring reference shot changes…'
+              : 'Preparing optional English transcription…';
   p.status = 'running:' + operation;
   p.error = null;
   await put('projects', id, p);
@@ -141,6 +149,102 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
       }
     };
     try {
+      if (operation === 'colour') {
+        if (!p.reference?.caption_analysis) throw new Error('Choose a reference reel first.');
+        let target = p.reference.caption_analysis.look;
+        if (!target) {
+          const a = await asset(p.reference.id),
+            v = await loadVideo(await blobURL(a.id, a.blob), controller.signal);
+          try {
+            target = await sourceLook(v, controller.signal);
+            p.reference.caption_analysis.look = target;
+          } finally {
+            releaseVideo(v);
+          }
+        }
+        const reels =
+          options.reel_id === 'all'
+            ? p.reels
+            : p.reels.filter((r) => r.id === (options.reel_id || p.reels[0].id));
+        p.reference.source_looks ||= {};
+        for (const r of reels) {
+          compile(p, r);
+          const looks = [];
+          for (const src of new Set(r.shot_list.map((s) => s.source))) {
+            const a = await asset(p.sources[src].id),
+              v = await loadVideo(await blobURL(a.id, a.blob), controller.signal);
+            try {
+              const look = await sourceLook(
+                v,
+                controller.signal,
+                r.shot_list
+                  .filter((s) => s.source === src)
+                  .map((s) => ({ s: s.source_in, e: s.source_out })),
+              );
+              looks.push(look);
+              p.reference.source_looks[src] = look;
+            } finally {
+              releaseVideo(v);
+            }
+          }
+          r.editing = {
+            ...r.editing,
+            colour: {
+              ...matchColour(averageLooks(looks), target),
+              strength: options.strength ?? 1,
+            },
+          };
+        }
+        p.reference.matched_colour = matchColour(
+          averageLooks(Object.values(p.reference.source_looks)),
+          target,
+        );
+        p.reference.colour_report = `Reference tone applied at ${Math.round((options.strength ?? 1) * 100)}% to ${reels.map((r) => r.id.toUpperCase()).join(', ')}. Compare Original and Applied tone below.`;
+        await put('undo', id, initial);
+        p.generation++;
+        p.revision++;
+        invalidate(p);
+        history(p, p.reference.colour_report);
+        operation = 'storyboard';
+      }
+      if (operation === 'pacing') {
+        if (!p.reference?.caption_analysis) throw new Error('Choose a reference reel first.');
+        const a = await asset(p.reference.id),
+          video = await loadVideo(await blobURL(a.id, a.blob), controller.signal);
+        try {
+          const pacing = await analyzePacing(video, controller.signal, progress);
+          p.reference.caption_analysis.pacing = pacing;
+          if (a.caption_analysis) {
+            a.caption_analysis.pacing = pacing;
+            await put('assets', a.id, a);
+          }
+          if (pacing.confidence === 'measured') {
+            const plan = controlPreview(p, {
+              action: 'copy',
+              area: 'pacing',
+              reel_id: options.reel_id || 'all',
+              reframes: options.reframes ?? true,
+            });
+            for (const item of plan.reels) {
+              const r = p.reels.find((r) => r.id === item.id)!;
+              r.control_baseline_segments ||= structuredClone(r.segments);
+              r.segments = item.changes.segments!;
+              r.editing = { ...r.editing, pacing: item.changes.editing!.pacing };
+              compile(p, r);
+            }
+            p.reference.pacing_report = `Copied ${pacing.cuts.length} measured reference cuts across ${pacing.window_seconds!.toFixed(1)}s. Review the new storyboard.`;
+          } else
+            p.reference.pacing_report = `No reliable shot changes in the ${pacing.window_seconds!.toFixed(1)}s reference scan. Your cut timing is unchanged. Use Set pace for a deliberate manual rhythm.`;
+        } finally {
+          releaseVideo(video);
+        }
+        await put('undo', id, initial);
+        p.generation++;
+        p.revision++;
+        invalidate(p);
+        history(p, p.reference.pacing_report!);
+        operation = 'storyboard';
+      }
       if (operation === 'reference') {
         if (!p.reference) throw new Error('A reference reel is required.');
         const a = await asset(p.reference.id);
@@ -204,6 +308,7 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
           if (before[r.id]?.key === key) {
             r.frames = before[r.id].reel.frames;
             r.gif = before[r.id].reel.gif;
+            r.tone_preview = before[r.id].reel.tone_preview;
             hits++;
             frames += Math.round((r.gif.duration || 0) / 0.2);
           } else frames += await board(p, r, controller.signal, progress);
@@ -255,7 +360,7 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
           })),
         };
         history(p, 'MP4s encoded locally. Review picture and sound before accepting.');
-      } else {
+      } else if (operation === 'transcribe') {
         const { transcribe } = await import('./transcribe');
         const candidate = structuredClone(p);
         await transcribe(candidate, controller.signal, progress);
@@ -409,11 +514,14 @@ function wantsReferenceUpgrade(p: LocalProject) {
 async function applyReference(p: LocalProject, analysis: CaptionAnalysis, signal?: AbortSignal) {
   if (!p.reference) return;
   const looks = [];
-  for (const source of Object.values(p.sources)) {
+  p.reference.source_looks = {};
+  for (const [src, source] of Object.entries(p.sources)) {
     const a = await asset(source.id),
       video = await loadVideo(await blobURL(a.id, a.blob), signal);
     try {
-      looks.push(await sourceLook(video, signal));
+      const look = await sourceLook(video, signal);
+      looks.push(look);
+      p.reference.source_looks[src] = look;
     } finally {
       releaseVideo(video);
     }
@@ -519,6 +627,7 @@ async function create(data: Record<string, any>) {
       : undefined,
     error: null,
     browserReady: false,
+    story_notes: String(data.notes || '').slice(0, 20000),
   };
   p.style = structuredClone(seed.style);
   p.style.captions!.style = {
@@ -602,7 +711,10 @@ async function create(data: Record<string, any>) {
   }
   if (reference?.caption_analysis) await applyReference(p, reference.caption_analysis);
   await put('projects', p.id, p);
-  return { id: p.id, ...(await launch(p.id, 'storyboard')) };
+  return {
+    id: p.id,
+    ...(await launch(p.id, 'storyboard')),
+  };
 }
 function sourceIDs(p: LocalProject) {
   return [
@@ -642,7 +754,10 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
   else if (parts[0] === 'edit-presets') {
     if (method === 'GET' && parts[1] === 'source' && parts[2]) result = await project(parts[2]);
     else if (method === 'GET')
-      result = (await all<EditPreset>('presets')).sort((a, b) => b.created - a.created);
+      result = [
+        ...(await all<EditPreset>('presets')).sort((a, b) => b.created - a.created),
+        ...structuredClone(BUILTIN_PRESETS),
+      ];
     else if (method === 'POST') {
       let preset: EditPreset;
       if (data.preset) {
@@ -663,6 +778,8 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
       await put('presets', preset.id, preset);
       result = preset;
     } else if (method === 'DELETE' && parts[1]) {
+      if (BUILTIN_PRESETS.some((p) => p.id === parts[1]))
+        throw new Error('Starter presets are always available. Save your own variation instead.');
       await remove('presets', parts[1]);
       result = { ok: true };
     } else throw new Error('Unsupported preset action.');
@@ -907,11 +1024,25 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           await put('projects', id, p);
           return launch(id, 'storyboard');
         }
+        if (action === 'reference-pacing' || action === 'reference-colour') {
+          current(p, data);
+          if (!p.reference) throw new Error('Choose a reference reel first.');
+          if (data.reel_id && data.reel_id !== 'all' && !p.reels.some((r) => r.id === data.reel_id))
+            throw new Error('Choose an existing reel.');
+          if (
+            action === 'reference-colour' &&
+            data.strength !== undefined &&
+            (!Number.isFinite(data.strength) || data.strength < 0 || data.strength > 1)
+          )
+            throw new Error('Choose a colour strength between 0 and 100%.');
+          return launch(id, action === 'reference-pacing' ? 'pacing' : 'colour', data);
+        }
         if (action === 'control-preview' || action === 'control-apply') {
           current(p, data);
           const preset =
             data.request?.action === 'preset'
-              ? await get<EditPreset>('presets', String(data.request.preset_id))
+              ? BUILTIN_PRESETS.find((p) => p.id === data.request.preset_id) ||
+                (await get<EditPreset>('presets', String(data.request.preset_id)))
               : undefined;
           const preview = controlPreview(p, data.request, preset);
           for (const plan of preview.reels) validateChanges(plan.changes);
@@ -943,6 +1074,12 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
             }
             compile(p, updated);
             p.reels[index] = updated;
+          }
+          if (p.reference) {
+            if (preview.reels.some((r) => r.changes.editing?.colour))
+              p.reference.colour_report = undefined;
+            if (preview.reels.some((r) => r.changes.editing?.pacing))
+              p.reference.pacing_report = undefined;
           }
           await put('undo', id, previous);
           p.generation++;

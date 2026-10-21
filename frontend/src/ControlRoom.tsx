@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Copy,
   Palette,
@@ -57,6 +57,7 @@ function description(c: Changes): string[] {
   return rows;
 }
 export default function ControlRoom({ project, reel, disabled, dirty, onAction, onOpen }: Props) {
+  const proposalRef = useRef<HTMLDivElement>(null);
   const [target, setTarget] = useState(reel.id),
     [area, setArea] = useState<ControlArea>('all'),
     [text, setText] = useState('');
@@ -80,6 +81,35 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
   }, [reel.id]);
   const a = project.reference?.caption_analysis,
     busy = disabled || !!pending;
+  useEffect(() => {
+    if (preview) {
+      proposalRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      proposalRef.current?.focus({ preventScroll: true });
+    }
+  }, [preview]);
+  async function analyze(kind: 'reference-pacing' | 'reference-colour') {
+    setPending(kind);
+    setError('');
+    setNotice(
+      kind === 'reference-colour'
+        ? 'Measuring and applying reference tone to the selected footage…'
+        : 'Measuring reference shot changes, then rebuilding the cut preview…',
+    );
+    try {
+      await onAction(kind, {
+        generation: project.generation,
+        revision: project.revision,
+        reel_id: target,
+        reframes,
+        strength: strength / 100,
+      });
+    } catch (e) {
+      setError((e as Error).message);
+      setNotice('');
+    } finally {
+      setPending('');
+    }
+  }
   const action = (q: Omit<ControlRequest, 'reel_id'>): ControlRequest => ({
     ...q,
     reel_id: target,
@@ -167,6 +197,34 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
           </select>
         </label>
       </div>
+      <div className="control-feedback" aria-live="polite">
+        {error && (
+          <p className="inline-error" role="alert">
+            {error}
+          </p>
+        )}
+        {(project.busy || pending) && (
+          <p role="status" className="control-notice">
+            <Loader2 size={14} className="spin" />{' '}
+            {project.browserProgress || 'Preparing the edit…'}
+          </p>
+        )}
+        {!project.busy && notice && (
+          <p role="status" className="control-notice">
+            {notice}{' '}
+            <button
+              className="text-button"
+              onClick={() =>
+                document
+                  .querySelector('[aria-label="Video preview"]')
+                  ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }
+            >
+              Review result
+            </button>
+          </p>
+        )}
+      </div>
       <div className="control-room-cards">
         <article className="control-card" aria-label="Caption copy controls">
           <Type size={22} />
@@ -222,12 +280,29 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
               ? 'Measured reference tone is ready to copy.'
               : 'Choose a reference to measure its tone.'}
           </small>
+          {project.reference?.colour_report && (
+            <p role="status" className="control-notice">
+              {project.reference.colour_report}
+            </p>
+          )}
+          {reel.tone_preview && (
+            <div className="tone-comparison" aria-label="Tone before and after">
+              <figure>
+                <img src={reel.tone_preview.before} alt="Original colour preview" />
+                <figcaption>Original</figcaption>
+              </figure>
+              <figure>
+                <img src={reel.tone_preview.after} alt="Applied colour preview" />
+                <figcaption>
+                  {reel.editing?.colour?.strength ? 'Applied tone' : 'Original tone'}
+                </figcaption>
+              </figure>
+            </div>
+          )}
           <button
             className="button dark full"
-            disabled={busy || !project.reference?.matched_colour}
-            onClick={() =>
-              void apply(action({ area: 'colour', action: 'copy', strength: strength / 100 }))
-            }
+            disabled={busy || !project.reference}
+            onClick={() => void analyze('reference-colour')}
           >
             <Copy size={15} />
             Copy colour tone
@@ -255,10 +330,23 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
           <h3>Cuts & pacing</h3>
           <p>
             {a?.pacing?.confidence === 'measured'
-              ? `${a.pacing.cuts.length} reference cuts in ${a.window_seconds?.toFixed(1)}s`
+              ? `${a.pacing.cuts.length} reference cuts in ${(a.pacing.window_seconds || a.window_seconds)?.toFixed(1)}s`
               : 'No clear reference cuts detected'}{' '}
             · {reel.segments.length} current shots
           </p>
+          <small>
+            {a?.pacing?.confidence === 'measured'
+              ? `Cut times: ${a.pacing.cuts
+                  .slice(0, 10)
+                  .map((t) => t.toFixed(2) + 's')
+                  .join(', ')}${a.pacing.cuts.length > 10 ? '…' : ''}`
+              : 'Copy checks up to 30 seconds for scene changes and subtle jump cuts. If none are found, timing is kept.'}
+          </small>
+          {project.reference?.pacing_report && (
+            <p role="status" className="control-notice">
+              {project.reference.pacing_report}
+            </p>
+          )}
           <div className="control-shot-field">
             <label className="field">
               Shot length (seconds)
@@ -295,8 +383,8 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
           </label>
           <button
             className="button dark full"
-            disabled={busy || a?.pacing?.confidence !== 'measured'}
-            onClick={() => void apply(action({ area: 'pacing', action: 'copy', reframes }))}
+            disabled={busy || !project.reference}
+            onClick={() => void analyze('reference-pacing')}
           >
             <Copy size={15} />
             Copy cuts & pacing
@@ -397,7 +485,12 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
         </button>
       </form>
       {preview && (
-        <div className="control-proposal" aria-label="Control room proposal">
+        <div
+          ref={proposalRef}
+          tabIndex={-1}
+          className="control-proposal"
+          aria-label="Control room proposal"
+        >
           <strong>
             {stale ? 'This edit changed — preview your instruction again' : 'Proposed edit'}
           </strong>
@@ -431,16 +524,6 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
       )}
       {project.terminal && (
         <p className="field-hint">Duplicate this completed project to make another edit.</p>
-      )}
-      {error && (
-        <p className="inline-error" role="alert">
-          {error}
-        </p>
-      )}
-      {notice && (
-        <p role="status" className="control-notice">
-          {notice}
-        </p>
       )}
       <div className="control-room-footer">
         <p>

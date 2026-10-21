@@ -248,7 +248,7 @@ export async function analyzeBoxedReference(
   }
   const measured = measureBoxes(matches, preview, window, times);
   measured.look = averageLooks(looks);
-  measured.pacing = pacingFromFrames(times, hist);
+  measured.pacing = pacingFromFrames(times, hist, window);
   checkAbort(signal);
   try {
     const { detectCaptionOCR } = await import('./captionOCR');

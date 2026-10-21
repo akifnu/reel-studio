@@ -150,6 +150,7 @@ async function ready(page: any) {
   await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeVisible({
     timeout: 60000,
   });
+  await page.getByText('Manual editing controls', { exact: true }).click();
 }
 async function localProject(page: any) {
   await page.getByRole('button', { name: 'New project', exact: true }).click();
@@ -1188,13 +1189,11 @@ test('saved tone and pacing presets cross projects, survive reload, and travel a
   expect(await library.getByLabel('Saved editing preset', { exact: true }).inputValue()).not.toBe(
     presetId,
   );
-  await library
-    .getByLabel('Import editing preset', { exact: true })
-    .setInputFiles({
-      name: 'invalid.json',
-      mimeType: 'application/json',
-      buffer: Buffer.from('{"version":1,"name":"Bad","pacing":{"pattern":[]}}'),
-    });
+  await library.getByLabel('Import editing preset', { exact: true }).setInputFiles({
+    name: 'invalid.json',
+    mimeType: 'application/json',
+    buffer: Buffer.from('{"version":1,"name":"Bad","pacing":{"pattern":[]}}'),
+  });
   await expect(library.getByRole('alert')).toContainText('invalid cut rhythm');
   expect((await storedProject(page, 'Preset destination')).generation).toBe(target.generation);
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1247,4 +1246,186 @@ test('existing version 1 projects survive the preset library storage upgrade', a
   );
   expect(version).toBe(2);
   expect((await storedProject(page, 'Existing version one')).sources).toBeTruthy();
+});
+
+test('starter presets are actionable immediately and their proposal is brought into view', async ({
+  page,
+}) => {
+  await ready(page);
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  const room = page.getByRole('region', { name: 'Editing control room', exact: true });
+  const library = room.getByRole('region', { name: 'Saved tone and pacing presets', exact: true });
+  await expect(library.getByLabel('Saved editing preset', { exact: true })).toHaveValue(
+    'builtin-warm-punchy',
+  );
+  await library.getByRole('button', { name: 'Preview preset', exact: true }).click();
+  const proposal = room.getByLabel('Control room proposal', { exact: true });
+  await expect(proposal).toBeFocused();
+  await expect(proposal).toBeInViewport();
+  await expect(proposal).toContainText('Warm & punchy');
+  await room.getByRole('button', { name: 'Apply preset', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  await expect(room.getByAltText('Applied colour preview', { exact: true })).toBeVisible();
+  expect(
+    await room.getByAltText('Applied colour preview', { exact: true }).getAttribute('src'),
+  ).not.toBe(
+    await room.getByAltText('Original colour preview', { exact: true }).getAttribute('src'),
+  );
+});
+
+test('ChatGPT MCP tools inspect actual frames, apply an explicit edit, and run FFmpeg only after browser approval', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(150000);
+  await ready(page);
+  await localProject(page);
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  const connection = page.getByRole('region', { name: 'ChatGPT editing connection', exact: true });
+  let engine = 0;
+  page.on('request', (r) => {
+    if (r.url().includes('/engine/')) engine++;
+  });
+  await connection
+    .getByRole('button', { name: 'Connect this project to ChatGPT', exact: true })
+    .click();
+  await expect(connection.getByLabel('ChatGPT editing prompt', { exact: true })).toBeVisible({
+    timeout: 30000,
+  });
+  const prompt = await connection
+      .getByLabel('ChatGPT editing prompt', { exact: true })
+      .inputValue(),
+    key = prompt.match(/Connection key: ([a-f0-9]{64})/)![1];
+  async function tool(name: string, args: Record<string, unknown> = {}) {
+    const response = await page.request.post('/mcp', {
+      data: {
+        jsonrpc: '2.0',
+        id: crypto.randomUUID(),
+        method: 'tools/call',
+        params: { name, arguments: { session_key: key, ...args } },
+      },
+    });
+    return (await response.json()).result;
+  }
+  async function context() {
+    return (await tool('reel_read_context')).structuredContent;
+  }
+  let current = await context();
+  expect(current.reference.name).toContain('boxed-reference');
+  expect(current.sources.A.name).toBe('source.mp4');
+  const read = await tool('reel_read_frames', { role: 'reference' });
+  expect(read.content.filter((c: any) => c.type === 'image')).toHaveLength(6);
+  const denied = await tool('reel_run_tool', {
+    tool: 'ffmpeg_render',
+    generation: current.generation,
+    args: { approved: true },
+  });
+  expect(denied.isError).toBe(true);
+  expect(engine).toBe(0);
+  const sample = await tool('reel_run_tool', {
+    tool: 'sample_frames',
+    generation: current.generation,
+    args: { role: 'reference', times: [0.5, 1.5, 2.5] },
+  });
+  expect(sample.structuredContent.status).toBe('queued');
+  await expect
+    .poll(async () => (await context()).last_job?.status, { timeout: 30000 })
+    .toBe('succeeded');
+  expect((await tool('reel_read_frames', { role: 'reference' })).structuredContent.count).toBe(3);
+  const original = await storedProject(page, 'My local reel');
+  const edit = await tool('reel_run_tool', {
+    tool: 'apply_edit',
+    generation: current.generation,
+    args: {
+      reel_id: 'r01',
+      changes: {
+        segments: [{ src: 'A', s: 0.5, e: 3.5 }],
+        editing: { captions: { enabled: true, style: { fill: '#00ffff' } } },
+      },
+    },
+  });
+  expect(edit.structuredContent.status).toBe('queued');
+  await expect
+    .poll(async () => (await context()).last_job?.status, { timeout: 60000 })
+    .toBe('succeeded');
+  current = await context();
+  const edited = await storedProject(page, 'My local reel');
+  expect(edited.generation).toBeGreaterThan(original.generation);
+  expect(edited.reels[0].duration).toBeCloseTo(3);
+  expect(edited.reels[0].editing.captions.style.fill).toBe('#00ffff');
+  expect(edited.reels[0].gif.url).toBeTruthy();
+  expect(engine).toBe(0);
+  const stale = await tool('reel_run_tool', {
+    tool: 'apply_edit',
+    generation: original.generation,
+    args: { reel_id: 'r01', changes: { cta: 'stale' } },
+  });
+  expect(stale.isError).toBe(true);
+  await connection
+    .getByRole('button', { name: 'Approve storyboard for ChatGPT', exact: true })
+    .click();
+  await expect.poll(async () => (await context()).approved_generation).toBe(current.generation);
+  const render = await tool('reel_run_tool', {
+    tool: 'ffmpeg_render',
+    generation: current.generation,
+    args: {},
+  });
+  expect(render.structuredContent.status).toBe('queued');
+  await expect
+    .poll(async () => (await context()).last_job?.status, { timeout: 90000 })
+    .toBe('succeeded');
+  expect(engine).toBeGreaterThan(0);
+  const repeat = await tool('reel_run_tool', {
+    tool: 'ffmpeg_render',
+    generation: current.generation,
+    args: {},
+  });
+  expect(repeat.isError).toBe(true);
+  await page.getByRole('button', { name: 'Accept passing renders', exact: true }).click();
+  const saved = await tool('reel_run_tool', {
+    tool: 'save_style',
+    generation: current.generation,
+    args: {
+      name: 'Approved cyan captions',
+      reel_id: 'r01',
+      description: 'Copy the cyan caption treatment from this accepted edit.',
+    },
+  });
+  expect(saved.structuredContent.status).toBe('queued');
+  await expect
+    .poll(async () => (await context()).last_job?.status, { timeout: 30000 })
+    .toBe('succeeded');
+  await connection.getByText('Saved style menu · 1 approved looks', { exact: true }).click();
+  await expect(connection.getByText('Approved cyan captions', { exact: true })).toBeVisible();
+  const styleDownload = page.waitForEvent('download');
+  await connection.getByRole('button', { name: 'Download style skill', exact: true }).click();
+  const styleFile = await (await styleDownload).path(),
+    bundle = unzipSync(new Uint8Array(readFileSync(styleFile!)));
+  expect(Object.keys(bundle).sort()).toEqual(['SKILL.md', 'preview.jpg', 'style.json']);
+  expect(
+    JSON.parse(new TextDecoder().decode(bundle['style.json'])).editing.captions.style.fill,
+  ).toBe('#00ffff');
+  const downloaded = page.waitForEvent('download');
+  await page.getByRole('link', { name: 'Download r01.mp4', exact: true }).click();
+  const file = await (await downloaded).path();
+  const probe = JSON.parse(
+    execFileSync(
+      'ffprobe',
+      ['-v', 'error', '-show_streams', '-show_format', '-of', 'json', file!],
+      { encoding: 'utf8' },
+    ),
+  );
+  expect(probe.streams.find((s: any) => s.codec_type === 'video').height).toBe(960);
+  expect(probe.streams.some((s: any) => s.codec_type === 'audio')).toBe(true);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await connection.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('chatgpt-tools-mobile.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await connection.getByRole('button', { name: 'Disconnect', exact: true }).click();
+  expect((await tool('reel_read_context')).isError).toBe(true);
 });

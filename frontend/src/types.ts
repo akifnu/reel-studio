@@ -29,6 +29,11 @@ export type ColourGrade = {
   strength: number;
 };
 export type PacingAnalysis = {
+  version?: number;
+  window_seconds?: number;
+  samples?: number;
+  scores?: number[];
+  notes?: string;
   cuts: number[];
   median_shot: number;
   confidence: 'measured' | 'no-cuts';
@@ -90,6 +95,7 @@ export type CaptionEvent = {
   words?: { w: string; s: number; e: number }[];
 };
 export type Reel = Changes & {
+  tone_preview?: { before: string; after: string };
   control_baseline_segments?: Segment[];
   id: string;
   duration: number | null;
@@ -143,6 +149,7 @@ export type Comment = {
   at: number;
 };
 export type Project = {
+  story_notes?: string;
   browserProgress?: string;
   browserReady?: boolean;
   id: string;
@@ -169,6 +176,9 @@ export type Project = {
     autoMatchAttempted?: boolean;
     autoMatchVersion?: number;
     source_look?: ColourStats;
+    source_looks?: Record<string, ColourStats>;
+    pacing_report?: string;
+    colour_report?: string;
     matched_colour?: ColourGrade;
   };
   sample_url: string | null;
@@ -232,6 +242,7 @@ export type ControlRequest = {
   reframes?: boolean;
 };
 export type EditPreset = {
+  builtin?: boolean;
   id: string;
   version: 1;
   name: string;

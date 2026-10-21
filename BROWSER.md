@@ -3,11 +3,25 @@
 Open https://reel-studio-try-akifnu.fluffyfrog9.chatgpt.site. Processing uses your device; no Render account or paid API is
 required. The server edition remains available in this repository.
 
+## Use ChatGPT/Codex as the editor
+
+The default working surface is **Edit with ChatGPT**. ChatGPT reads the reference and raw footage and chooses the edit; the browser executes media tools. There is no new browser language model, paid model API, or separate agent framework.
+
+1. Install/connect the Reel Studio Site plugin in ChatGPT once. The Site owner’s publication provisions its MCP connection.
+2. Create a project with distinct **Reference reel** and **Raw footage** inputs. The first storyboard is a starting draft, not an autonomous editorial decision.
+3. Click **Connect this project to ChatGPT**, then **Copy ChatGPT prompt**. Paste it into ChatGPT with the Reel Studio plugin enabled. Keep the editor tab open.
+4. ChatGPT can read actual reference/source frames, request different timestamps, measure caption/tone/cut evidence, transcribe selected speech, and apply an explicit timeline and caption recipe. It can inspect the generated storyboard frames as well. Tool measurements are evidence; they are not agents or guarantees of an exact font match.
+5. Review the storyboard/GIF, revise through chat, then click **Approve storyboard for ChatGPT**. ChatGPT can now call `ffmpeg_render` once for that exact approved generation. Any edit cancels approval. A queued command is not a completed render.
+6. Review the MP4’s picture and audio in the browser, accept it and download it. Ask ChatGPT to `save_style` after accepting a finished video. Its real caption/tone/pacing settings and a visual preview appear in **Saved style menu** across projects in this browser. `list_styles` and `apply_style` reuse these approved recipes independently for captions, tone, pacing, or the whole look. **Download style skill** exports `SKILL.md`, the editing recipe and its preview as a ZIP for later Codex sessions.
+
+The small Worker exposes `reel_read_context`, `reel_read_frames`, and `reel_run_tool` over `/mcp`; it relays commands to the open browser. It does not call a model provider or run FFmpeg on the server. A random project connection key scopes shared frames, transcript and edit metadata; raw video stays in IndexedDB. Disconnect removes that session’s shared packets and jobs. Browser-local project/style storage is not cloud sync. A standalone web page cannot invoke the user’s ChatGPT account without this actual plugin connection.
+
+**Manual editing controls** remain available in a collapsed section. Their local text parser and image statistics are tools, not autonomous agents. The older manual workflow is documented below.
+
 1. Choose **New project**. **Reference reel** is an optional example of the editing
    style you like; **Raw footage** is the required content to edit. They have
    separate uploads and library labels. A reference alone cannot create a reel.
-   Reference analysis samples **24 frames from the first five seconds**. Scene
-   histograms measure cut boundaries and median shot length. RGB statistics measure
+   Reference analysis samples **24 frames from the first five seconds**. Spatial frame changes and colour histograms provide initial evidence of cut boundaries. **Copy cuts & pacing** additionally scans up to 30 seconds at eight samples per second, without repeating OCR. RGB statistics measure
    a bounded colour transfer. It is measured at ingestion and applied only when you
    press **Copy colour tone** in the control room; Source playback, stills, GIF and
    MP4 then share that correction. Scene content/lighting can affect this approximation; it is not the original LUT.
@@ -54,8 +68,7 @@ required. The server edition remains available in this repository.
 
 The browser edition shows **Copy caption style**, **Copy colour tone** (0–100% strength),
 and **Copy cuts & pacing** as independent actions. Each uses the selected target:
-one reel or all reels. Copying one feature preserves the other features. Missing
-measurements disable their copy button; no guessed preset or cut rhythm is applied.
+one reel or all reels. Copying one feature preserves the other features. Caption copy needs a confident detection. Colour and pacing buttons measure on demand whenever a reference exists; a no-cuts report preserves timing rather than substituting a guessed rhythm. Tone shows an original/applied comparison.
 
 A shared prompt box has an **Editing area** selector. For example, choose Colour
 tone and type “warmer and less saturated”. **Preview instruction** shows the changes
@@ -177,7 +190,7 @@ frame-by-frame animation cannot be guaranteed from the flattened video.
 
 ### Reuse tone and pacing between projects
 
-Open **The control room → Your preset library**. Choose the source project and reel, select **Tone + pacing**, **Tone only**, or **Pacing only**, name it, and click **Save preset**. The library captures that reel’s current settings (including an applied reference look), without copying its footage, captions, audio, or source positions. A reference tone that has only been measured must be applied first to become the reel’s current look.
+Open **The control room → Your preset library**. Choose the source project and reel, select **Tone + pacing**, **Tone only**, or **Pacing only**, name it, and click **Save preset**. Three labelled starter presets are available immediately. Preview proposals move into view. Saving without a name uses the source project name. The library captures that reel’s current settings (including an applied reference look), without copying its footage, captions, audio, or source positions. A reference tone that has only been measured must be applied first to become the reel’s current look.
 
 Choose a saved preset in any project. Use **Preview preset**, **Preview tone only**, or **Preview pacing only**, then **Apply preset**. The control room’s **Apply to** selector targets one reel or all reels. Preview does not mutate the project; applying invalidates the old approval and rebuilds only the sampled storyboard/GIF. Full rendering still needs explicit approval. Reset and undo remain available. Pacing repeats the saved rhythm on the destination’s selected footage; shot lengths use the existing 0.35–5 second range and 120-cut limit.
 
