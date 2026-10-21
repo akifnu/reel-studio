@@ -52,7 +52,7 @@ export type CaptionAnalysis = {
 };
 export type Editing = {
   colour?: ColourGrade;
-  pacing?: { target: number; reframes: boolean };
+  pacing?: { target: number; reframes: boolean; pattern?: number[] };
   captions?: { enabled?: boolean; style?: TextStyle };
   crop?: { x?: number; y?: number; zoom?: number };
   music?: { gain_db?: number; muted?: boolean };
@@ -90,6 +90,7 @@ export type CaptionEvent = {
   words?: { w: string; s: number; e: number }[];
 };
 export type Reel = Changes & {
+  control_baseline_segments?: Segment[];
   id: string;
   duration: number | null;
   speech: string;
@@ -218,4 +219,21 @@ export type Proposal = {
   explanation: string;
   provider: string;
   generation: number;
+};
+export type ControlArea = 'colour' | 'pacing' | 'captions' | 'all';
+export type ControlRequest = {
+  area: ControlArea;
+  action: 'copy' | 'prompt' | 'settings' | 'reset';
+  reel_id: string;
+  text?: string;
+  strength?: number;
+  seconds?: number;
+  reframes?: boolean;
+};
+export type ControlPreview = {
+  request: ControlRequest;
+  generation: number;
+  revision: number;
+  explanation: string;
+  reels: { id: string; changes: Changes; before: number; after: number; shots: number }[];
 };

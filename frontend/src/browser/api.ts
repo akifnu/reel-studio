@@ -19,9 +19,10 @@ import type { LocalAsset, LocalProject } from './store';
 import { board, checkAbort, compile, loadVideo, releaseVideo } from './compositor';
 import { outputBlob, render, stopEngine } from './engine';
 import { REFERENCE_VERSION } from './referenceStyle';
-import { averageLooks, matchColour, paceReel, sourceLook } from './referenceLook';
+import { averageLooks, matchColour, sourceLook } from './referenceLook';
 import { editingReply } from './editingAssistant';
 import { loadCustomFonts, fontFamilies } from './fonts';
+import { controlPreview } from './controlRoom';
 const MAX_FILE = 100 * 1024 ** 2,
   MAX_TOTAL = 200 * 1024 ** 2;
 const tasks = new Map<string, { status: string; error?: string; result?: unknown }>();
@@ -169,7 +170,7 @@ async function launch(id: string, operation: 'storyboard' | 'render' | 'transcri
         invalidate(p);
         history(
           p,
-          'Reference colour, pacing and detected captions applied. Review changed cut timing and source wording before approving.',
+          'Reference captions copied. Colour tone and cut timing are available on demand in the control room.',
         );
         operation = 'storyboard';
       }
@@ -432,14 +433,12 @@ async function applyReference(p: LocalProject, analysis: CaptionAnalysis, signal
   for (const r of p.reels) {
     r.editing = {
       ...r.editing,
-      colour: grade ? structuredClone(grade) : undefined,
       captions: {
         enabled: analysis.status === 'detected',
         style: structuredClone(analysis.style || {}),
       },
     };
     r.effective_style = { ...r.effective_style, captions: structuredClone(p.style.captions) };
-    if (analysis.pacing?.confidence === 'measured') paceReel(p, r, analysis.pacing.median_shot);
     compile(p, r);
   }
 }
@@ -877,6 +876,50 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
           p.revision++;
           invalidate(p);
           history(p, 'Edit saved; rebuilding only changed reel previews.');
+          await put('projects', id, p);
+          return launch(id, 'storyboard');
+        }
+        if (action === 'control-preview' || action === 'control-apply') {
+          current(p, data);
+          const preview = controlPreview(p, data.request);
+          for (const plan of preview.reels) validateChanges(plan.changes);
+          if (action === 'control-preview') return preview;
+          if (!preview.reels.some((r) => Object.keys(r.changes).length))
+            throw new Error('That instruction contains no supported change. Nothing was applied.');
+          const previous = structuredClone(p);
+          for (const plan of preview.reels) {
+            const index = p.reels.findIndex((r) => r.id === plan.id),
+              r = p.reels[index];
+            if (plan.changes.segments && !r.control_baseline_segments)
+              r.control_baseline_segments = structuredClone(r.segments);
+            const updated = merge(
+              r as unknown as Record<string, unknown>,
+              plan.changes,
+            ) as unknown as typeof r;
+            if (preview.request.action === 'copy' && preview.request.area === 'captions') {
+              updated.editing = {
+                ...updated.editing,
+                captions: structuredClone(plan.changes.editing!.captions),
+              };
+              updated.effective_style = {
+                ...updated.effective_style,
+                captions: {
+                  present: true,
+                  style: structuredClone(plan.changes.editing!.captions!.style),
+                },
+              };
+            }
+            compile(p, updated);
+            p.reels[index] = updated;
+          }
+          await put('undo', id, previous);
+          p.generation++;
+          p.revision++;
+          invalidate(p);
+          history(
+            p,
+            `Control room: ${preview.request.action} ${preview.request.area} on ${preview.reels.map((r) => r.id).join(', ')}.`,
+          );
           await put('projects', id, p);
           return launch(id, 'storyboard');
         }

@@ -201,7 +201,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
         )}
         <p className="field-hint reference-limit">
           {browserMode
-            ? 'Reference analysis samples 24 frames from up to 5 seconds, locally. Colour tone and cut timing are measured. Local English OCR also reads captions without a box; the original font can be imported later. Hook wording stays yours.'
+            ? 'Reference analysis samples 24 frames from up to 5 seconds, locally. Colour tone and cut timing are measured for on-demand copying. Local English OCR also reads captions without a box; the original font can be imported later. Hook wording stays yours.'
             : 'The server analyzes this reference separately. Review the measured style before it is applied to your raw footage.'}
         </p>
         {browserMode && sample?.caption_analysis && (
@@ -230,8 +230,8 @@ export default function NewProject({ onClose, onCreated }: Props) {
               </>
             ) : (
               <p role="alert">
-                {sample.caption_analysis.notes} Colour and pacing will still apply. Captions stay
-                off until you choose their style; no preset is substituted.
+                {sample.caption_analysis.notes} Colour and pacing remain available in the control
+                room. Captions stay off until you choose their style; no preset is substituted.
               </p>
             )}
           </div>
@@ -240,10 +240,10 @@ export default function NewProject({ onClose, onCreated }: Props) {
           <p className="field-hint">
             Reference timing: {sample.caption_analysis.pacing.cuts.length} detected cuts ·{' '}
             {sample.caption_analysis.pacing.confidence === 'measured'
-              ? `${sample.caption_analysis.pacing.median_shot.toFixed(2)}s median shot. Speech follows complete sentences; reframe cuts preserve footage without a transcript.`
+              ? `${sample.caption_analysis.pacing.median_shot.toFixed(2)}s median shot. Use Copy cuts & pacing in the control room when you want this rhythm.`
               : 'No clear cuts; source timing will be kept.'}{' '}
             Colour tone:{' '}
-            {sample.caption_analysis.look ? 'measured and applied automatically' : 'not measured'}.
+            {sample.caption_analysis.look ? 'measured — copy on demand' : 'not measured'}.
           </p>
         )}
         {sample && (

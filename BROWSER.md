@@ -8,11 +8,14 @@ required. The server edition remains available in this repository.
    separate uploads and library labels. A reference alone cannot create a reel.
    Reference analysis samples **24 frames from the first five seconds**. Scene
    histograms measure cut boundaries and median shot length. RGB statistics measure
-   a bounded colour transfer, which is applied to Source playback, stills, GIF and
-   MP4. Scene content/lighting can affect this approximation; it is not the original LUT.
-   Fast pacing makes alternating 10% reframe cuts. With captions/transcripts it keeps
-   the selected speech and removes sentence gaps; without a transcript it preserves
-   every source second and the original audio. It does not invent new camera angles.
+   a bounded colour transfer. It is measured at ingestion and applied only when you
+   press **Copy colour tone** in the control room; Source playback, stills, GIF and
+   MP4 then share that correction. Scene content/lighting can affect this approximation; it is not the original LUT.
+   Cut timing is also on demand. **Copy cuts & pacing** transfers the sampled cut
+   rhythm to your current footage selection. **Set pace** uses a chosen 0.35–5 second
+   shot length; optional alternating 10% reframes make those cuts visible. Both retain
+   the selected footage and audio. It does not invent new camera angles. A pacing
+   prompt can prefer transcript sentences and remove their gaps.
    Caption analysis measures coloured backplates, then uses a local English OCR worker
    on up to three high-resolution frames to handle unboxed text, case, size, position,
    colour and an estimated outline. The roughly 8 MB OCR runtime/model stays local
@@ -20,15 +23,17 @@ required. The server edition remains available in this repository.
    Caption detection does not depend on a font picker. Font shape is approximated
    from available faces; **Captions → Import original font** accepts TTF/OTF/WOFF/WOFF2
    files up to 5 MB and saves them locally for previews, exports and reloads.
-   Reference style applies automatically. Presets cannot override it during setup.
+   Reference **caption style** applies automatically. Colour and cut timing remain
+   unchanged until explicitly requested. Presets cannot override captions during setup.
    Uncertain captions stay disabled with a visible warning; measured colour and
    pacing remain usable. No preset is silently substituted. Reference caption OCR
    text is evidence only, never raw-footage dialogue. Matching is cached by file
    hash and analyzer version. The comparison above the editor shows observed and
-   recreated captions. **Reanalyze and apply full reference style** retries it with
+   recreated captions. **Refresh reference analysis & captions** retries it with
    an undo snapshot, rebuilds the storyboard and requires approval again. Existing
    unfinished projects upgrade once, except projects with explicit saved edits.
-   Previously edited projects can opt into the full match with that button.
+   Refreshing reference analysis retains existing colour correction and cut timing.
+   Previously edited projects retain their current settings until you change them.
    Reference picture, speech and music never enter the output.
 2. Optionally enter a caption script (one line per caption). These timings are
    evenly spaced, not speech measurements. Blank input produces no invented speech.
@@ -44,6 +49,28 @@ required. The server edition remains available in this repository.
 6. Keep the tab open. Review the encoded picture/audio, accept it, then press
    **Download r01.mp4** for an individual video, or **Export reels** for a ZIP of all accepted outputs. On a phone,
    unzip it in the Files app before sharing the MP4.
+
+## The control room
+
+The browser edition shows **Copy caption style**, **Copy colour tone** (0–100% strength),
+and **Copy cuts & pacing** as independent actions. Each uses the selected target:
+one reel or all reels. Copying one feature preserves the other features. Missing
+measurements disable their copy button; no guessed preset or cut rhythm is applied.
+
+A shared prompt box has an **Editing area** selector. For example, choose Colour
+tone and type “warmer and less saturated”. **Preview instruction** shows the changes
+for each target without saving or encoding. **Apply instruction** saves the edit and
+rebuilds the sampled storyboard/GIF. Instructions scoped to one area exclude other
+areas even if the text mentions them. Entire reel allows combined commands.
+
+**Reset tone** removes colour correction. **Reset cuts** restores timing saved before
+the first control-room pacing edit. For older projects without that saved timing,
+it merges contiguous cuts and disables paced reframing, retaining the existing
+source selections. **Undo last change** restores the previous saved
+project state. Pending inspector edits must be updated/discarded before using these
+actions. Stale prompt previews cannot apply after the project changes. Caption details,
+framing/motion, audio and the persistent editing chat are linked from the room.
+Full MP4 encoding still requires explicit approval of the latest storyboard.
 
 ## What runs locally
 

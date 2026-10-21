@@ -609,7 +609,9 @@ test('reference caption style comes from 24 frames in five seconds and reaches t
   await page.reload();
   await expect(
     page.getByRole('region', { name: 'Reference caption status', exact: true }),
-  ).toContainText('Reference style applied to your reels', { timeout: 30000 });
+  ).toContainText('Reference captions applied · colour and pacing available on demand', {
+    timeout: 30000,
+  });
   await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
     timeout: 60000,
   });
@@ -653,7 +655,7 @@ test('reference caption style comes from 24 frames in five seconds and reaches t
   });
   const previousGeneration = (await storedProject(page, 'Measured caption style')).generation;
   await page
-    .getByRole('button', { name: 'Reanalyze and apply full reference style', exact: true })
+    .getByRole('button', { name: 'Refresh reference analysis & captions', exact: true })
     .click();
   await expect
     .poll(async () => (await storedProject(page, 'Measured caption style')).generation, {
@@ -779,6 +781,28 @@ test('unboxed OCR, measured colour and fast pacing, custom font and conversation
   expect(parseInt(a.style.fill.slice(1, 3), 16)).toBeGreaterThan(200);
   expect(parseInt(a.style.fill.slice(3, 5), 16)).toBeGreaterThan(180);
   expect(parseInt(a.style.fill.slice(5, 7), 16)).toBeLessThan(50);
+  expect(p.reels[0].segments).toEqual([{ src: 'A', s: 0, e: 4 }]);
+  expect(p.reels[0].editing.colour).toBeUndefined();
+  expect(p.reels[0].editing.pacing).toBeUndefined();
+  let beforeCopy = p.generation;
+  await page.getByRole('button', { name: 'Copy colour tone', exact: true }).click();
+  await expect
+    .poll(async () => (await storedProject(page, 'OCR colour pacing')).generation)
+    .toBeGreaterThan(beforeCopy);
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  p = await storedProject(page, 'OCR colour pacing');
+  expect(p.reels[0].segments).toEqual([{ src: 'A', s: 0, e: 4 }]);
+  beforeCopy = p.generation;
+  await page.getByRole('button', { name: 'Copy cuts & pacing', exact: true }).click();
+  await expect
+    .poll(async () => (await storedProject(page, 'OCR colour pacing')).generation)
+    .toBeGreaterThan(beforeCopy);
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  p = await storedProject(page, 'OCR colour pacing');
   expect(p.reels[0].segments.length).toBeGreaterThan(3);
   expect(p.reels[0].duration).toBeCloseTo(4, 2);
   expect(p.reels[0].editing.pacing.reframes).toBe(true);
@@ -910,4 +934,138 @@ test('outlined multiline captions are distinguished from neutral computer panels
   expect(a.ocr_text).toContain('CREATE');
   expect(a.ocr_text).toContain('HASSLE');
   expect(a.style.words_per_caption).toBeGreaterThanOrEqual(5);
+});
+
+test('control room copies each feature on demand, scopes targets, previews prompts, resets and undoes safely', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(150000);
+  await ready(page);
+  let engineRequests = 0;
+  page.on('request', (r) => {
+    if (r.url().includes('/engine/')) engineRequests++;
+  });
+  await page.getByRole('button', { name: 'New project', exact: true }).click();
+  await page
+    .getByLabel('Reference reel', { exact: true })
+    .setInputFiles(join(fixtures, 'unboxed-fast-reference.mp4'));
+  await expect(
+    page.getByText('Reference caption style detected — applied automatically', { exact: true }),
+  ).toBeVisible({ timeout: 60000 });
+  await page
+    .getByLabel('Raw footage', { exact: true })
+    .setInputFiles(join(fixtures, 'gray-raw.mp4'));
+  await page.getByLabel('Project name', { exact: true }).fill('Independent controls');
+  await page.getByLabel('Number of reels', { exact: true }).fill('2');
+  await page
+    .getByLabel('Caption script', { exact: true })
+    .fill('First reel words\nSecond reel words');
+  await page.getByRole('button', { name: 'Create storyboard', exact: true }).click();
+  await expect(
+    page.getByRole('heading', { name: 'Independent controls', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+    timeout: 60000,
+  });
+  const room = page.getByRole('region', { name: 'Editing control room', exact: true });
+  await room.getByRole('button', { name: 'Write tone instruction', exact: true }).click();
+  await expect(room.getByLabel('Control room instruction', { exact: true })).toBeFocused();
+  await expect(room.getByLabel('Control room editing area', { exact: true })).toHaveValue('colour');
+  let p = await storedProject(page, 'Independent controls');
+  const original = p.reels.map((r: any) => ({
+    segments: r.segments,
+    captions: r.editing.captions,
+  }));
+  for (const r of p.reels) {
+    expect(r.editing.colour).toBeUndefined();
+    expect(r.editing.pacing).toBeUndefined();
+  }
+  async function savedAfter(before: number) {
+    await expect
+      .poll(async () => (await storedProject(page, 'Independent controls')).generation, {
+        timeout: 30000,
+      })
+      .toBeGreaterThan(before);
+    await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+      timeout: 60000,
+    });
+    return storedProject(page, 'Independent controls');
+  }
+  await room.getByLabel('Tone copy strength', { exact: true }).fill('50');
+  await room.getByRole('button', { name: 'Copy colour tone', exact: true }).click();
+  p = await savedAfter(p.generation);
+  expect(p.reels[0].editing.colour.strength).toBe(0.5);
+  expect(p.reels[1].editing.colour).toBeUndefined();
+  p.reels.forEach((r: any, i: number) => {
+    expect(r.segments).toEqual(original[i].segments);
+    expect(r.editing.captions).toEqual(original[i].captions);
+  });
+  const beforePace = p.generation,
+    colour = structuredClone(p.reels[0].editing.colour);
+  await room.getByRole('button', { name: 'Copy cuts & pacing', exact: true }).click();
+  p = await savedAfter(beforePace);
+  expect(p.reels[0].segments.length).toBeGreaterThan(1);
+  expect(p.reels[0].editing.colour).toEqual(colour);
+  expect(p.reels[1].segments).toEqual(original[1].segments);
+  expect(p.reels[0].editing.captions).toEqual(original[0].captions);
+  await room.getByRole('button', { name: 'Reset cuts', exact: true }).click();
+  p = await savedAfter(p.generation);
+  expect(p.reels[0].segments).toEqual(original[0].segments);
+  await room.getByRole('button', { name: 'Reset tone', exact: true }).click();
+  p = await savedAfter(p.generation);
+  expect(p.reels[0].editing.colour.strength).toBe(0);
+  await room.getByRole('button', { name: 'Undo last change', exact: true }).click();
+  p = await savedAfter(p.generation);
+  expect(p.reels[0].editing.colour).toEqual(colour);
+  await room.getByLabel('Control room target', { exact: true }).selectOption('all');
+  await room.getByLabel('Control room editing area', { exact: true }).selectOption('colour');
+  await room
+    .getByLabel('Control room instruction', { exact: true })
+    .fill('Warmer and faster, yellow captions');
+  await room.getByRole('button', { name: 'Preview instruction', exact: true }).click();
+  await expect(room.getByLabel('Control room proposal', { exact: true })).toContainText(
+    'only colour tone',
+  );
+  expect((await storedProject(page, 'Independent controls')).generation).toBe(p.generation);
+  await room.getByRole('button', { name: 'Apply instruction', exact: true }).click();
+  p = await savedAfter(p.generation);
+  for (let i = 0; i < 2; i++) {
+    expect(p.reels[i].editing.colour.strength).toBe(1);
+    expect(p.reels[i].segments).toEqual(original[i].segments);
+    expect(p.reels[i].editing.captions).toEqual(original[i].captions);
+  }
+  const customTone = structuredClone(p.reels.map((r: any) => r.editing.colour)),
+    beforeRefresh = p.generation;
+  await page
+    .getByRole('button', { name: 'Refresh reference analysis & captions', exact: true })
+    .click();
+  p = await savedAfter(beforeRefresh);
+  for (let i = 0; i < 2; i++) {
+    expect(p.reels[i].editing.colour).toEqual(customTone[i]);
+    expect(p.reels[i].segments).toEqual(original[i].segments);
+  }
+  // Stage a proposal, then change the plan to prove the stale proposal cannot apply.
+  await room.getByLabel('Control room instruction', { exact: true }).fill('Cooler');
+  await room.getByRole('button', { name: 'Preview instruction', exact: true }).click();
+  await expect(room.getByRole('button', { name: 'Apply instruction', exact: true })).toBeEnabled();
+  await page.getByRole('tab', { name: 'Captions', exact: true }).click();
+  await page.getByLabel('Caption colour #f9a8d4', { exact: true }).click();
+  await page.getByRole('button', { name: 'Update storyboard', exact: true }).click();
+  p = await savedAfter(p.generation);
+  await expect(room.getByRole('button', { name: 'Apply instruction', exact: true })).toBeDisabled();
+  const pinkStyle = structuredClone(p.reels[0].editing.captions),
+    beforeCopyCaption = p.generation;
+  await room.getByLabel('Control room target', { exact: true }).selectOption('r01');
+  await room.getByRole('button', { name: 'Copy caption style', exact: true }).click();
+  p = await savedAfter(beforeCopyCaption);
+  expect(p.reels[0].editing.captions).not.toEqual(pinkStyle);
+  expect(p.reels[0].editing.colour).toEqual(customTone[0]);
+  expect(p.reels[0].segments).toEqual(original[0].segments);
+  expect(engineRequests).toBe(0);
+  await room.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('control-room-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await room.scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('control-room-mobile.png'), fullPage: true });
 });

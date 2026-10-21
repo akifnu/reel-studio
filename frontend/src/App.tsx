@@ -35,6 +35,7 @@ import CapCutExport from './CapCutExport';
 import CaptionStylePreview from './CaptionStylePreview';
 import Player from './Player';
 import Inspector from './Inspector';
+import ControlRoom from './ControlRoom';
 import { browserMode } from './features';
 
 export default function App() {
@@ -624,15 +625,35 @@ export default function App() {
                 </p>
               </div>
             )}
+            {browserMode && selected && (
+              <ControlRoom
+                key={project.id}
+                project={project}
+                reel={selected}
+                disabled={disabled || working || dirty}
+                dirty={dirty}
+                onAction={async (action, body) => {
+                  await run(() => api(`/projects/${project.id}/${action}`, 'POST', body), true);
+                }}
+                onOpen={(tab) => {
+                  setTab(tab);
+                  requestAnimationFrame(() =>
+                    document
+                      .querySelector('[aria-label="Reel settings"]')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' }),
+                  );
+                }}
+              />
+            )}
             {browserMode && project.reference && (
               <section className="reference-caption-status" aria-label="Reference caption status">
                 <strong>
                   {project.busy && project.reference.mode !== 'caption-measured'
                     ? 'Detecting and copying your reference captions…'
                     : project.reference.mode === 'caption-measured'
-                      ? 'Reference style applied to your reels'
+                      ? 'Reference captions applied · colour and pacing available on demand'
                       : project.reference.mode === 'analyzed'
-                        ? 'Reference colour and pacing applied — review captions'
+                        ? 'Reference measured · colour and pacing available on demand'
                         : 'Reference style has not been applied'}
                 </strong>
                 {project.reference.matchError && <p role="alert">{project.reference.matchError}</p>}
@@ -671,14 +692,16 @@ export default function App() {
                         )
                       }
                     >
-                      Retry reference caption detection
+                      Analyze reference & copy captions
                     </button>
                   )
                 )}
                 <p className="field-hint">
                   Colour:{' '}
-                  {project.reference.matched_colour ? 'measured and applied' : 'not yet measured'} ·
-                  Pacing:{' '}
+                  {project.reference.matched_colour
+                    ? 'measured — use Copy colour tone to apply'
+                    : 'not yet measured'}{' '}
+                  · Pacing:{' '}
                   {project.reference.caption_analysis?.pacing?.confidence === 'measured'
                     ? `${project.reference.caption_analysis.pacing.cuts.length} detected cuts, ${project.reference.caption_analysis.pacing.median_shot.toFixed(2)}s median shot`
                     : 'no clear cuts detected; timing kept'}
@@ -704,7 +727,7 @@ export default function App() {
                       )
                     }
                   >
-                    Reanalyze and apply full reference style
+                    Refresh reference analysis & captions
                   </button>
                 )}
                 {project.reference.mode === 'caption-measured' &&

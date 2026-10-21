@@ -35,7 +35,7 @@ export default function ProjectInputs({
           {project.reference?.notes && <p className="reference-brief">{project.reference.notes}</p>}
           <p>
             {browserMode && project.reference?.baselineVersion === 3
-              ? 'Reference colour and pacing are measured and applied. Detected captions use sampled size, placement, colour and outline; the original font remains approximate. Review the storyboard before approving.'
+              ? 'Reference colour and pacing are measured and available on demand in the control room. Detected captions use sampled size, placement, colour and outline; the original font remains approximate. Review the storyboard before approving.'
               : project.reference?.mode === 'caption-measured'
                 ? 'Caption style copied by an older analyzer. Reapply the full reference style to measure colour, pacing and unboxed captions.'
                 : project.reference?.mode === 'manual'
@@ -53,7 +53,7 @@ export default function ProjectInputs({
           )}
           {onMatch && project.reference && !project.terminal && (
             <button className="button secondary" disabled={disabled} onClick={onMatch}>
-              Reapply full reference style on all reels
+              Refresh reference analysis & captions on all reels
             </button>
           )}
           <small>Reference picture and audio are excluded from the edit.</small>

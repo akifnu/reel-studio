@@ -133,12 +133,22 @@ function bounds(p: Project, s: Segment) {
     e: s.e ?? tr.find((x) => x.id === s.sentences?.at(-1))?.e ?? 0,
   };
 }
+export function sourceRanges(p: Project, segments: Segment[]): Segment[] {
+  const ranges: Segment[] = [];
+  for (const s of segments) {
+    const b = bounds(p, s),
+      last = ranges.at(-1);
+    if (last?.src === s.src && Math.abs(last.e! - b.s) < 0.001) last.e = b.e;
+    else ranges.push({ src: s.src, s: b.s, e: b.e });
+  }
+  return ranges;
+}
 // Keep speech intact. Prefer complete transcript sentences and remove their gaps;
 // without a transcript, use contiguous reframe cuts, preserving every source second.
 export function paceSegments(p: Project, r: Reel, target: number): Segment[] {
   target = clamp(target, 0.35, 5);
   const result: Segment[] = [];
-  for (const seg of r.segments) {
+  for (const seg of sourceRanges(p, r.segments)) {
     const b = bounds(p, seg),
       tr = (p.transcripts[seg.src]?.sentences || []).filter(
         (x) => x.text.trim() && x.s >= b.s - 0.01 && x.e <= b.e + 0.01,
