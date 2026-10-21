@@ -1,4 +1,12 @@
-import { readFileSync, writeFileSync, mkdirSync, copyFileSync, rmSync } from 'node:fs';
+import {
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  copyFileSync,
+  rmSync,
+  readdirSync,
+  renameSync,
+} from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 mkdirSync('public/caption-engine', { recursive: true });
@@ -53,6 +61,9 @@ const r = spawnSync('npm', ['run', 'build'], {
   env: { ...process.env, VITE_STUDIO_MODE: 'browser' },
 });
 if (r.status === 0) {
+  const assets = readdirSync('dist');
+  mkdirSync('dist/client', { recursive: true });
+  for (const name of assets) renameSync('dist/' + name, 'dist/client/' + name);
   mkdirSync('dist/server', { recursive: true });
   mkdirSync('dist/.openai', { recursive: true });
   copyFileSync('../site-worker/index.js', 'dist/server/index.js');

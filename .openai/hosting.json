@@ -1,6 +1,5 @@
 {
   "project_id": "appgprj_6ad8bdd382488191ab5234974a3ace39",
-  "static": { "directory": "dist" },
   "r2": "BRIDGE",
   "capabilities": ["mcp"]
 }

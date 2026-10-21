@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
 import { resolve, extname } from "node:path";
 import { handle } from "./index.js";
-const root = resolve(import.meta.dirname, "../frontend/dist"),
+const root = resolve(import.meta.dirname, "../frontend/dist/client"),
   values = new Map();
 const types = {
   ".js": "text/javascript",
