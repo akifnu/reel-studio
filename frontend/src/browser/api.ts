@@ -1,4 +1,4 @@
-import type { CaptionAnalysis, Changes, Project, Proposal, Upload } from '../types';
+import type { CaptionAnalysis, Changes, EditPreset, Project, Proposal, Upload } from '../types';
 import { merge } from '../utils';
 import {
   all,
@@ -23,6 +23,7 @@ import { averageLooks, matchColour, sourceLook } from './referenceLook';
 import { editingReply } from './editingAssistant';
 import { loadCustomFonts, fontFamilies } from './fonts';
 import { controlPreview } from './controlRoom';
+import { capturePreset, validatePreset } from './presets';
 const MAX_FILE = 100 * 1024 ** 2,
   MAX_TOTAL = 200 * 1024 ** 2;
 const tasks = new Map<string, { status: string; error?: string; result?: unknown }>();
@@ -638,7 +639,34 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
       storyboard_limits: { stills_per_reel: 3, gif_seconds: 3 },
     };
   else if (path === '/session') result = { ok: true };
-  else if (parts[0] === 'tasks')
+  else if (parts[0] === 'edit-presets') {
+    if (method === 'GET' && parts[1] === 'source' && parts[2]) result = await project(parts[2]);
+    else if (method === 'GET')
+      result = (await all<EditPreset>('presets')).sort((a, b) => b.created - a.created);
+    else if (method === 'POST') {
+      let preset: EditPreset;
+      if (data.preset) {
+        preset = validatePreset(data.preset);
+        preset.id = crypto.randomUUID();
+        preset.created = Date.now();
+      } else {
+        const source = await project(String(data.project_id));
+        if (source.busy)
+          throw new Error(
+            'Wait for the source project to finish processing before saving its preset.',
+          );
+        const reel = source.reels.find((r) => r.id === data.reel_id);
+        if (!reel) throw new Error('Choose a source reel.');
+        compile(source, reel);
+        preset = capturePreset(source, reel, data.name, data.parts);
+      }
+      await put('presets', preset.id, preset);
+      result = preset;
+    } else if (method === 'DELETE' && parts[1]) {
+      await remove('presets', parts[1]);
+      result = { ok: true };
+    } else throw new Error('Unsupported preset action.');
+  } else if (parts[0] === 'tasks')
     result = tasks.get(parts[1]) || {
       status: 'failed',
       error: 'The tab restarted. Rebuild this storyboard to continue.',
@@ -881,7 +909,11 @@ export async function api<T>(path: string, method = 'GET', body?: unknown): Prom
         }
         if (action === 'control-preview' || action === 'control-apply') {
           current(p, data);
-          const preview = controlPreview(p, data.request);
+          const preset =
+            data.request?.action === 'preset'
+              ? await get<EditPreset>('presets', String(data.request.preset_id))
+              : undefined;
+          const preview = controlPreview(p, data.request, preset);
           for (const plan of preview.reels) validateChanges(plan.changes);
           if (action === 'control-preview') return preview;
           if (!preview.reels.some((r) => Object.keys(r.changes).length))

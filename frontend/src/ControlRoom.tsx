@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Changes, ControlArea, ControlPreview, ControlRequest, Project, Reel } from './types';
 import { api } from './api';
+import PresetLibrary from './PresetLibrary';
 type Props = {
   project: Project;
   reel: Reel;
@@ -103,9 +104,8 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
       setPending('');
     }
   }
-  async function prompt() {
-    if (!text.trim()) return;
-    setPending('prompt');
+  async function previewRequest(request: ControlRequest) {
+    setPending(request.action);
     setError('');
     setNotice('');
     setPreview(null);
@@ -114,7 +114,7 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
         await api<ControlPreview>(`/projects/${project.id}/control-preview`, 'POST', {
           generation: project.generation,
           revision: project.revision,
-          request: action({ area, action: 'prompt', text }),
+          request,
         }),
       );
     } catch (e) {
@@ -122,6 +122,9 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
     } finally {
       setPending('');
     }
+  }
+  async function prompt() {
+    if (text.trim()) await previewRequest(action({ area, action: 'prompt', text }));
   }
   function writeInstruction(next: ControlArea, value: string) {
     setArea(next);
@@ -329,6 +332,15 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
           </div>
         </article>
       </div>
+      <PresetLibrary
+        project={project}
+        reelId={reel.id}
+        disabled={busy}
+        dirty={dirty}
+        onPreview={(preset_id, area) =>
+          previewRequest(action({ area, action: 'preset', preset_id }))
+        }
+      />
       <form
         className="control-prompt"
         onSubmit={(e) => {
@@ -405,7 +417,7 @@ export default function ControlRoom({ project, reel, disabled, dirty, onAction, 
             onClick={() => void apply(preview.request, preview)}
           >
             <Check size={15} />
-            Apply instruction
+            {preview.request.action === 'preset' ? 'Apply preset' : 'Apply instruction'}
           </button>
           <button className="text-button" onClick={() => setPreview(null)}>
             Discard proposal

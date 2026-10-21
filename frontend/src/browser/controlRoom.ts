@@ -4,6 +4,7 @@ import type {
   ControlArea,
   ControlPreview,
   ControlRequest,
+  EditPreset,
   Project,
   Reel,
   Segment,
@@ -12,6 +13,7 @@ import { merge } from '../utils';
 import { compile } from './compositor';
 import { editingReply } from './editingAssistant';
 import { clamp, sourceRanges } from './referenceLook';
+import { validatePreset } from './presets';
 const identity = (): ColourGrade => ({
   gain: [1, 1, 1],
   offset: [0, 0, 0],
@@ -58,8 +60,29 @@ function changesFor(
   p: Project,
   r: Reel,
   q: ControlRequest,
+  preset?: EditPreset,
 ): { changes: Changes; explanation: string } {
   const a = p.reference?.caption_analysis;
+  if (q.action === 'preset') {
+    if (!preset || preset.id !== q.preset_id)
+      throw new Error('This preset is no longer available. Choose another preset.');
+    const saved = validatePreset(preset);
+    if (
+      q.area === 'captions' ||
+      (q.area === 'colour' && !saved.colour) ||
+      (q.area === 'pacing' && !saved.pacing)
+    )
+      throw new Error('That editing area is not included in this preset.');
+    const colour = q.area !== 'pacing' ? saved.colour : undefined;
+    const pacing = q.area !== 'colour' ? saved.pacing : undefined;
+    return {
+      changes: {
+        editing: { ...(colour ? { colour } : {}), ...(pacing ? { pacing } : {}) },
+        ...(pacing ? { segments: rhythmCuts(p, r, pacing.pattern) } : {}),
+      },
+      explanation: `Apply “${saved.name}” from ${saved.source.project}: ${[colour && 'colour tone', pacing && 'cut rhythm'].filter(Boolean).join(' and ')}. Your current footage, captions and audio are retained.`,
+    };
+  }
   if (q.action === 'prompt') {
     const response = editingReply(p, r, String(q.text || ''));
     const changes = scopedChanges(response.changes, q.area);
@@ -146,11 +169,11 @@ function changesFor(
   }
   throw new Error('Choose a specific editing area for a copy or reset.');
 }
-export function controlPreview(p: Project, q: ControlRequest): ControlPreview {
+export function controlPreview(p: Project, q: ControlRequest, preset?: EditPreset): ControlPreview {
   if (
     !q ||
     !['colour', 'pacing', 'captions', 'all'].includes(q.area) ||
-    !['copy', 'prompt', 'settings', 'reset'].includes(q.action) ||
+    !['copy', 'prompt', 'settings', 'reset', 'preset'].includes(q.action) ||
     typeof q.reel_id !== 'string'
   )
     throw new Error('Choose an editing area, action and target reel.');
@@ -162,7 +185,7 @@ export function controlPreview(p: Project, q: ControlRequest): ControlPreview {
   if (!reels.length) throw new Error('The target reel is no longer available.');
   const explanations: string[] = [];
   const plans = reels.map((r) => {
-    const { changes, explanation } = changesFor(p, r, q);
+    const { changes, explanation } = changesFor(p, r, q, preset);
     explanations.push(explanation);
     const copy = merge(r as unknown as Record<string, unknown>, changes) as unknown as Reel;
     compile(p, copy);

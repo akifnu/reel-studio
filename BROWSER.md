@@ -174,3 +174,11 @@ used by the GIF and MP4. The sample wording is illustrative and never enters the
 reel. This makes copying visible before optional edits. Matching remains a measured
 reconstruction of measurable boxed and unboxed captions; exact font identity, font metrics and
 frame-by-frame animation cannot be guaranteed from the flattened video.
+
+### Reuse tone and pacing between projects
+
+Open **The control room → Your preset library**. Choose the source project and reel, select **Tone + pacing**, **Tone only**, or **Pacing only**, name it, and click **Save preset**. The library captures that reel’s current settings (including an applied reference look), without copying its footage, captions, audio, or source positions. A reference tone that has only been measured must be applied first to become the reel’s current look.
+
+Choose a saved preset in any project. Use **Preview preset**, **Preview tone only**, or **Preview pacing only**, then **Apply preset**. The control room’s **Apply to** selector targets one reel or all reels. Preview does not mutate the project; applying invalidates the old approval and rebuilds only the sampled storyboard/GIF. Full rendering still needs explicit approval. Reset and undo remain available. Pacing repeats the saved rhythm on the destination’s selected footage; shot lengths use the existing 0.35–5 second range and 120-cut limit.
+
+Presets persist independently of projects in IndexedDB. They are local to this browser and site, without account sync. **Download preset** creates a small `.reel-preset.json` file; **Import preset** loads it on another browser or device after validation. Files contain only portable settings and the source project/reel names. Deleting a preset does not change any edits already made with it. The storage upgrade from version 1 preserves existing projects and media.

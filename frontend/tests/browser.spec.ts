@@ -1069,3 +1069,182 @@ test('control room copies each feature on demand, scopes targets, previews promp
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath('control-room-mobile.png'), fullPage: true });
 });
+
+test('saved tone and pacing presets cross projects, survive reload, and travel as validated files', async ({
+  page,
+}, testInfo) => {
+  test.setTimeout(150000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await ready(page);
+  let engineRequests = 0;
+  page.on('request', (r) => {
+    if (r.url().includes('/engine/')) engineRequests++;
+  });
+  async function create(name: string, file: string, count: number) {
+    await page.getByRole('button', { name: 'New project', exact: true }).click();
+    await page.getByLabel('Raw footage', { exact: true }).setInputFiles(join(fixtures, file));
+    await page.getByLabel('Project name', { exact: true }).fill(name);
+    await page.getByLabel('Number of reels', { exact: true }).fill(String(count));
+    await page.getByLabel('Caption script', { exact: true }).fill('My words stay in this footage.');
+    await page.getByRole('button', { name: 'Create storyboard', exact: true }).click();
+    await expect(page.getByRole('heading', { name, exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+      timeout: 60000,
+    });
+    return storedProject(page, name);
+  }
+  const room = page.getByRole('region', { name: 'Editing control room', exact: true });
+  const library = page.getByRole('region', { name: 'Saved tone and pacing presets', exact: true });
+  async function edited(name: string, before: number) {
+    await expect
+      .poll(async () => (await storedProject(page, name)).generation, { timeout: 30000 })
+      .toBeGreaterThan(before);
+    await expect(page.getByRole('button', { name: 'Approve & render', exact: true })).toBeEnabled({
+      timeout: 60000,
+    });
+    return storedProject(page, name);
+  }
+  let source = await create('Preset origin', 'source.mp4', 1);
+  await room.getByLabel('Control room editing area', { exact: true }).selectOption('colour');
+  await room
+    .getByLabel('Control room instruction', { exact: true })
+    .fill('Make it warmer and less saturated');
+  await room.getByRole('button', { name: 'Preview instruction', exact: true }).click();
+  await room.getByRole('button', { name: 'Apply instruction', exact: true }).click();
+  source = await edited('Preset origin', source.generation);
+  await room.getByLabel('Control room shot length', { exact: true }).fill('0.5');
+  await room.getByLabel('Alternate reframing at cuts', { exact: true }).uncheck();
+  await room.getByRole('button', { name: 'Set pace', exact: true }).click();
+  source = await edited('Preset origin', source.generation);
+  let target = await create('Preset destination', 'white-raw.mp4', 2);
+  const original = structuredClone(target);
+  await library.getByLabel('Preset source project', { exact: true }).selectOption(source.id);
+  await expect(library.getByLabel('Preset source reel', { exact: true })).toHaveValue('r01');
+  await library.getByLabel('Preset name', { exact: true }).fill('Warm fast interview');
+  await library.getByRole('button', { name: 'Save preset', exact: true }).click();
+  await expect(library.getByRole('status')).toContainText('saved');
+  const presetId = await library.getByLabel('Saved editing preset', { exact: true }).inputValue();
+  expect((await storedProject(page, 'Preset origin')).generation).toBe(source.generation);
+  expect((await storedProject(page, 'Preset destination')).generation).toBe(original.generation);
+  await room.getByLabel('Control room target', { exact: true }).selectOption('all');
+  await library.getByRole('button', { name: 'Preview tone only', exact: true }).click();
+  await expect(room.getByLabel('Control room proposal', { exact: true })).toContainText(
+    'Warm fast interview',
+  );
+  expect((await storedProject(page, 'Preset destination')).generation).toBe(original.generation);
+  await room.getByRole('button', { name: 'Apply preset', exact: true }).click();
+  target = await edited('Preset destination', target.generation);
+  for (let i = 0; i < target.reels.length; i++) {
+    expect(target.reels[i].editing.colour).toEqual(source.reels[0].editing.colour);
+    expect(target.reels[i].segments).toEqual(original.reels[i].segments);
+    expect(target.reels[i].editing.captions).toEqual(original.reels[i].editing.captions);
+  }
+  await library.getByRole('button', { name: 'Preview pacing only', exact: true }).click();
+  await room.getByRole('button', { name: 'Apply preset', exact: true }).click();
+  target = await edited('Preset destination', target.generation);
+  for (let i = 0; i < target.reels.length; i++) {
+    const r = target.reels[i],
+      prior = original.reels[i];
+    expect(r.editing.pacing).toEqual(source.reels[0].editing.pacing);
+    expect(r.editing.colour).toEqual(source.reels[0].editing.colour);
+    expect(r.duration).toBeCloseTo(prior.duration);
+    expect(r.segments).toHaveLength(4);
+    expect(r.segments[0].s).toBe(prior.segments[0].s);
+    expect(r.segments.at(-1).e).toBe(prior.segments.at(-1).e);
+    expect(r.segments.every((s: any) => s.src === prior.segments[0].src)).toBe(true);
+    expect(r.editing.captions).toEqual(prior.editing.captions);
+    expect(r.gif.url).toBeTruthy();
+    expect(r.frames).toHaveLength(3);
+  }
+  await room.getByRole('button', { name: 'Undo last change', exact: true }).click();
+  target = await edited('Preset destination', target.generation);
+  expect(target.reels.map((r: any) => r.segments)).toEqual(
+    original.reels.map((r: any) => r.segments),
+  );
+  const downloadPromise = page.waitForEvent('download');
+  await library.getByRole('button', { name: 'Download preset', exact: true }).click();
+  const download = await downloadPromise,
+    file = await download.path();
+  const exported = JSON.parse(readFileSync(file!, 'utf8'));
+  expect(exported.colour).toEqual(source.reels[0].editing.colour);
+  expect(exported.pacing).toEqual(source.reels[0].editing.pacing);
+  expect(exported.segments).toBeUndefined();
+  expect(exported.sources).toBeUndefined();
+  await page.reload();
+  await expect(
+    page.getByRole('heading', { name: 'Preset destination', exact: true }),
+  ).toBeVisible();
+  await library.getByLabel('Saved editing preset', { exact: true }).selectOption(presetId);
+  await expect(library).toContainText('Preset origin');
+  await library.getByRole('button', { name: 'Preview preset', exact: true }).click();
+  await room.getByRole('button', { name: 'Apply preset', exact: true }).click();
+  target = await edited('Preset destination', target.generation);
+  expect(target.reels[0].editing.pacing).toEqual(exported.pacing);
+  await library.getByRole('button', { name: 'Delete preset', exact: true }).click();
+  await expect(library.getByLabel('Saved editing preset', { exact: true })).toHaveValue('');
+  await library.getByLabel('Import editing preset', { exact: true }).setInputFiles(file!);
+  await expect(library.getByRole('status')).toContainText('imported');
+  expect(await library.getByLabel('Saved editing preset', { exact: true }).inputValue()).not.toBe(
+    presetId,
+  );
+  await library
+    .getByLabel('Import editing preset', { exact: true })
+    .setInputFiles({
+      name: 'invalid.json',
+      mimeType: 'application/json',
+      buffer: Buffer.from('{"version":1,"name":"Bad","pacing":{"pattern":[]}}'),
+    });
+  await expect(library.getByRole('alert')).toContainText('invalid cut rhythm');
+  expect((await storedProject(page, 'Preset destination')).generation).toBe(target.generation);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await library.scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath('preset-library-mobile.png'), fullPage: true });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(engineRequests).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('existing version 1 projects survive the preset library storage upgrade', async ({ page }) => {
+  await page.goto('/demo/project.json');
+  await page.evaluate(async () => {
+    const project = await (await fetch('/demo/project.json')).json();
+    project.name = 'Existing version one';
+    project.browserReady = false;
+    project.status = 'new';
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const q = indexedDB.open('reel-studio-local-v1', 1);
+      q.onupgradeneeded = () => {
+        for (const name of ['projects', 'assets', 'media', 'undo'])
+          q.result.createObjectStore(name);
+      };
+      q.onsuccess = () => resolve(q.result);
+      q.onerror = () => reject(q.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('projects', 'readwrite');
+      tx.objectStore('projects').put(project, project.id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    db.close();
+  });
+  await ready(page);
+  await expect(
+    page.getByRole('heading', { name: 'Existing version one', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('Preset name', { exact: true })).toBeVisible();
+  const version = await page.evaluate(
+    async () =>
+      new Promise<number>((resolve) => {
+        const q = indexedDB.open('reel-studio-local-v1');
+        q.onsuccess = () => {
+          const db = q.result;
+          resolve(db.version);
+          db.close();
+        };
+      }),
+  );
+  expect(version).toBe(2);
+  expect((await storedProject(page, 'Existing version one')).sources).toBeTruthy();
+});

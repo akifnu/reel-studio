@@ -18,12 +18,24 @@ export type LocalProject = Project & {
 let dbPromise: Promise<IDBDatabase> | undefined;
 const database = () =>
   (dbPromise ||= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('reel-studio-local-v1', 1);
+    const request = indexedDB.open('reel-studio-local-v1', 2);
     request.onupgradeneeded = () => {
-      for (const name of ['projects', 'assets', 'media', 'undo'])
-        request.result.createObjectStore(name);
+      for (const name of ['projects', 'assets', 'media', 'undo', 'presets'])
+        if (!request.result.objectStoreNames.contains(name)) request.result.createObjectStore(name);
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      request.result.onversionchange = () => {
+        request.result.close();
+        dbPromise = undefined;
+      };
+      resolve(request.result);
+    };
+    request.onblocked = () =>
+      reject(
+        new Error(
+          'Close other Reel Studio tabs, then refresh to upgrade your saved preset library. Your projects are kept.',
+        ),
+      );
     request.onerror = () =>
       reject(
         new Error('Local storage is unavailable. Use a normal browser tab with storage enabled.'),

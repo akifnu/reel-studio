@@ -223,12 +223,22 @@ export type Proposal = {
 export type ControlArea = 'colour' | 'pacing' | 'captions' | 'all';
 export type ControlRequest = {
   area: ControlArea;
-  action: 'copy' | 'prompt' | 'settings' | 'reset';
+  action: 'copy' | 'prompt' | 'settings' | 'reset' | 'preset';
+  preset_id?: string;
   reel_id: string;
   text?: string;
   strength?: number;
   seconds?: number;
   reframes?: boolean;
+};
+export type EditPreset = {
+  id: string;
+  version: 1;
+  name: string;
+  created: number;
+  source: { project: string; reel: string };
+  colour?: ColourGrade;
+  pacing?: { target: number; reframes: boolean; pattern: number[] };
 };
 export type ControlPreview = {
   request: ControlRequest;
