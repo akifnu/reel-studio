@@ -120,3 +120,39 @@ jobs:
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install browser test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          npm --prefix frontend ci
+          npx --prefix frontend playwright install --with-deps chromium
+      - name: Build the free browser edition
+        run: npm --prefix frontend run build:browser
+      - name: Test real browser encoding and consent boundaries
+        env:
+          STUDIO_BROWSER_ONLY: '1'
+          STUDIO_TEST_URL: http://127.0.0.1:8765
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 --directory frontend/dist >browser-server.log 2>&1 &
+          studio_pid=$!
+          trap 'kill "$studio_pid" 2>/dev/null || true' EXIT
+          curl --fail --retry 10 --retry-delay 1 --retry-connrefused http://127.0.0.1:8765/ >/dev/null
+          npm --prefix frontend run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-debug
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+            browser-server.log

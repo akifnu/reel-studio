@@ -32,6 +32,7 @@ import { merge, phase, time } from './utils';
 import NewProject from './NewProject';
 import Player from './Player';
 import Inspector from './Inspector';
+import { browserMode } from './features';
 
 export default function App() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]),
@@ -69,6 +70,11 @@ export default function App() {
   const loadProjects = useCallback(async () => {
     const list = await api<ProjectSummary[]>('/projects');
     setProjects(list);
+    if (browserMode && activeRef.current && !list.some((p) => p.id === activeRef.current)) {
+      activeRef.current = list[0]?.id || '';
+      setActive(activeRef.current);
+      setError('');
+    }
     if (!activeRef.current && list[0]) setActive(list[0].id);
   }, []);
   const refresh = useCallback(async () => {
@@ -132,7 +138,7 @@ export default function App() {
     setError('');
     try {
       const result = (await fn()) as { task_id?: string } | undefined;
-      if (result?.task_id) await waitTask(result.task_id);
+      if (result?.task_id && !browserMode) await waitTask(result.task_id);
       await Promise.all([refresh(), loadProjects()]);
     } catch (e) {
       setError((e as Error).message);
@@ -224,6 +230,23 @@ export default function App() {
       setNotice('');
     }
   }
+  async function deleteLocalProject() {
+    if (!project || !confirm('Delete this local project and its unused source files?')) return;
+    setWorking(true);
+    setError('');
+    try {
+      await api(`/projects/${project.id}/delete`, 'POST');
+      activeRef.current = '';
+      localStorage.removeItem('studio:project');
+      setActive('');
+      setProject(null);
+      await loadProjects();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setWorking(false);
+    }
+  }
   async function acceptRenders() {
     if (!project?.needs) return;
     const n = project.needs;
@@ -305,7 +328,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <style>
-        {(config?.fonts || [])
+        {(browserMode ? [] : config?.fonts || [])
           .flatMap((font) =>
             [400, 700, 800].map(
               (weight) =>
@@ -470,14 +493,65 @@ export default function App() {
             )}
             <a
               className={`button dark compact ${!project?.deliverables.length ? 'is-disabled' : ''}`}
+              aria-label="Export reels"
+              role="link"
               aria-disabled={!project?.deliverables.length}
               href={project?.deliverables.length ? `/api/projects/${project.id}/export` : undefined}
+              onClick={
+                browserMode
+                  ? (e) => {
+                      e.preventDefault();
+                      if (project?.deliverables.length)
+                        void run(async () =>
+                          (await import('./browser/api')).downloadProject(project),
+                        );
+                    }
+                  : undefined
+              }
             >
               <ArrowDownToLine size={15} />
               <span>Export reels</span>
             </a>
           </div>
         </header>
+        {browserMode && (
+          <div className="browser-banner">
+            <ShieldCheck size={18} />
+            <div>
+              <strong>Free · processes on this device</strong>
+              <p>
+                Videos stay in this browser. Keep this tab open while processing. First render
+                downloads about 32 MB. Optional English auto captions download a speech model
+                (roughly 60 MB). Download finished reels before clearing browser storage.
+              </p>
+            </div>
+            {project && (
+              <div className="browser-actions">
+                <button
+                  className="button secondary compact"
+                  disabled={disabled || dirty}
+                  onClick={() =>
+                    void run(() =>
+                      api(`/projects/${project.id}/transcribe`, 'POST', {
+                        generation: project.generation,
+                        revision: project.revision,
+                      }),
+                    )
+                  }
+                >
+                  Auto captions (English)
+                </button>
+                <button
+                  className="text-button"
+                  disabled={project.busy || working}
+                  onClick={() => void deleteLocalProject()}
+                >
+                  Delete project
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         {setup && (
           <div className="setup-banner">
             <Settings2 size={20} />
@@ -512,7 +586,7 @@ export default function App() {
                 </span>
                 <h1>{project.name}</h1>
                 <p>
-                  {status}
+                  {project.browserProgress || status}
                   {project.busy && <Loader2 size={14} className="spin" />}
                 </p>
               </div>
@@ -531,8 +605,9 @@ export default function App() {
               <div className="demo-note">
                 <Film size={14} />
                 <p>
-                  Demo workspace. Captions are illustrative examples, not a transcription of this
-                  footage. Create a project with your own media for a real edit.
+                  {browserMode
+                    ? 'Generated sample footage. Try a real storyboard and MP4 render here, or choose New project to use your own video. Sample captions are illustrative.'
+                    : 'Demo workspace. Captions are illustrative examples, not a transcription of this footage. Create a project with your own media for a real edit.'}
                 </p>
               </div>
             )}
@@ -875,11 +950,15 @@ export default function App() {
                       </strong>
                       <p>
                         {project.busy
-                          ? 'The worker is running. You can safely close this tab and come back.'
+                          ? browserMode
+                            ? 'Processing on your device. Keep this tab open; you can cancel below.'
+                            : 'The worker is running. You can safely close this tab and come back.'
                           : ready
                             ? 'Approve this exact storyboard to begin full rendering.'
                             : renderReview
-                              ? 'Accept passing renders after checking picture and sound.'
+                              ? browserMode
+                                ? 'Check the video and audio yourself, then accept it for download. Automatic speech/tracking QC is not run.'
+                                : 'Accept passing renders after checking picture and sound.'
                               : 'Every new plan gets a fresh storyboard and approval.'}
                       </p>
                     </div>
@@ -963,6 +1042,16 @@ export default function App() {
                     )}
                   </div>
                 </div>
+                {browserMode && project.deliverables.length > 0 && (
+                  <div className="direct-downloads">
+                    {project.deliverables.map((d) => (
+                      <a className="button orange" key={d.name} href={d.url} download={d.name}>
+                        <ArrowDownToLine size={16} />
+                        Download {d.name}
+                      </a>
+                    ))}
+                  </div>
+                )}
                 <div className="resource-note">
                   <Clock3 size={12} />
                   {project.storyboard.frames} stills + {project.storyboard.gif_frames} GIF frames ·{' '}
@@ -1130,7 +1219,7 @@ export default function App() {
             setNewProject(false);
             setActive(id);
             void run(async () => {
-              await waitTask(task);
+              if (!browserMode) await waitTask(task);
             });
           }}
         />

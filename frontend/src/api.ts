@@ -8,6 +8,9 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+  if (import.meta.env.VITE_STUDIO_MODE === 'browser') {
+    return (await import('./browser/api')).api<T>(path, method, body);
+  }
   const response = await fetch('/api' + path, {
     method,
     credentials: 'same-origin',
@@ -50,6 +53,9 @@ export function upload(
   onProgress: (n: number) => void,
   signal?: AbortSignal,
 ): Promise<import('./types').Upload> {
+  if (import.meta.env.VITE_STUDIO_MODE === 'browser') {
+    return import('./browser/api').then((m) => m.upload(file, role, onProgress, signal));
+  }
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/uploads');

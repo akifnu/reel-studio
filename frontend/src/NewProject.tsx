@@ -9,10 +9,12 @@ import {
   Link as LinkIcon,
   Check,
   Plus,
+  Trash2,
 } from 'lucide-react';
 import { api, upload, waitTask } from './api';
 import type { Upload } from './types';
 import { bytes } from './utils';
+import { browserMode } from './features';
 
 type Props = { onClose: () => void; onCreated: (id: string, task: string) => void };
 
@@ -22,7 +24,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
     [sample, setSample] = useState<Upload | null>(null),
     [music, setMusic] = useState<Upload | null>(null);
   const [preset, setPreset] = useState('clean'),
-    [count, setCount] = useState(3),
+    [count, setCount] = useState(browserMode ? 1 : 3),
     [duration, setDuration] = useState(30),
     [lang, setLang] = useState('en'),
     [notes, setNotes] = useState('');
@@ -33,6 +35,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
     [library, setLibrary] = useState<Upload[]>([]);
   const abort = useRef<AbortController | null>(null),
     dialog = useRef<HTMLDialogElement>(null);
+  const [captionScript, setCaptionScript] = useState('');
   useEffect(() => {
     dialog.current?.showModal();
     void api<Upload[]>('/uploads')
@@ -91,6 +94,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
         duration,
         lang,
         notes,
+        ...(browserMode ? { caption_script: captionScript } : {}),
       });
       onCreated(result.id, result.task_id);
     } catch (e) {
@@ -146,7 +150,11 @@ export default function NewProject({ onClose, onCreated }: Props) {
       >
         <UploadCloud size={29} />
         <h3>Drop your footage here</h3>
-        <p>MP4, MOV, MKV or WebM · up to 4 GB per file</p>
+        <p>
+          {browserMode
+            ? 'H.264/AAC MP4 works best · up to 100 MB/file · 200 MB total · 5 minutes/source'
+            : 'MP4, MOV, MKV or WebM · up to 4 GB per file'}
+        </p>
         <label className="button dark">
           Choose videos
           <input
@@ -182,48 +190,72 @@ export default function NewProject({ onClose, onCreated }: Props) {
           ))}
         </div>
       )}
-      <details className="import-options">
-        <summary>
-          <LinkIcon size={14} />
-          Or import a video link
-        </summary>
-        <div className="url-row">
-          <input
-            aria-label="Video URL"
-            type="url"
-            placeholder="https://youtube.com/watch?v=…"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            disabled={!!busy}
-          />
-          <button
-            className="button secondary"
-            disabled={!!busy || !url}
-            onClick={() => void importUrl()}
-          >
-            Import
-          </button>
-        </div>
-        <p className="field-hint">
-          Optional yt-dlp importer. Imports preserve available source quality.
-        </p>
-      </details>
+      {!browserMode && (
+        <details className="import-options">
+          <summary>
+            <LinkIcon size={14} />
+            Or import a video link
+          </summary>
+          <div className="url-row">
+            <input
+              aria-label="Video URL"
+              type="url"
+              placeholder="https://youtube.com/watch?v=…"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              disabled={!!busy}
+            />
+            <button
+              className="button secondary"
+              disabled={!!busy || !url}
+              onClick={() => void importUrl()}
+            >
+              Import
+            </button>
+          </div>
+          <p className="field-hint">
+            Optional yt-dlp importer. Imports preserve available source quality.
+          </p>
+        </details>
+      )}
       {library.length > 0 && (
         <details className="import-options">
           <summary>Use a previously uploaded file</summary>
           <div className="library-list">
             {library
-              .filter((x) => x.role === 'source')
+              .filter((x) => browserMode || x.role === 'source')
               .map((x) => (
-                <button
-                  key={x.id}
-                  disabled={!!busy || sources.some((s) => s.id === x.id)}
-                  onClick={() => setSources((old) => [...old, x])}
-                >
-                  <Film size={14} />
-                  {x.name}
-                  <Plus size={13} />
-                </button>
+                <div className="library-row" key={x.id}>
+                  <button
+                    disabled={!!busy || sources.some((s) => s.id === x.id)}
+                    onClick={() =>
+                      x.role === 'music' ? setMusic(x) : setSources((old) => [...old, x])
+                    }
+                  >
+                    <Film size={14} />
+                    {x.name}
+                    <Plus size={13} />
+                  </button>
+                  {browserMode && (
+                    <button
+                      className="icon-button"
+                      aria-label={`Delete stored ${x.name}`}
+                      disabled={!!busy}
+                      onClick={async () => {
+                        try {
+                          await api(`/uploads/${x.id}`, 'DELETE');
+                          setLibrary((old) => old.filter((y) => y.id !== x.id));
+                          setSources((old) => old.filter((y) => y.id !== x.id));
+                          if (music?.id === x.id) setMusic(null);
+                        } catch (e) {
+                          setError((e as Error).message);
+                        }
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               ))}
           </div>
         </details>
@@ -253,18 +285,20 @@ export default function NewProject({ onClose, onCreated }: Props) {
         ))}
       </div>
       <div className="extra-uploads">
-        <label className={sample ? 'added' : ''}>
-          <Film size={17} />
-          {sample ? sample.name : 'Use a reference reel'}
-          <input
-            type="file"
-            accept="video/*,.mkv"
-            disabled={!!busy}
-            onChange={(e) => {
-              if (e.target.files) void files(e.target.files, 'sample');
-            }}
-          />
-        </label>
+        {!browserMode && (
+          <label className={sample ? 'added' : ''}>
+            <Film size={17} />
+            {sample ? sample.name : 'Use a reference reel'}
+            <input
+              type="file"
+              accept="video/*,.mkv"
+              disabled={!!busy}
+              onChange={(e) => {
+                if (e.target.files) void files(e.target.files, 'sample');
+              }}
+            />
+          </label>
+        )}
         <label className={music ? 'added' : ''}>
           <Music2 size={17} />
           {music ? music.name : 'Add background music'}
@@ -285,7 +319,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
             aria-label="Number of reels"
             type="number"
             min={1}
-            max={50}
+            max={browserMode ? 3 : 50}
             value={count}
             disabled={!!busy}
             onChange={(e) => setCount(+e.target.value)}
@@ -299,7 +333,7 @@ export default function NewProject({ onClose, onCreated }: Props) {
             value={duration}
             onChange={(e) => setDuration(+e.target.value)}
           >
-            {[15, 30, 45, 60, 90].map((x) => (
+            {(browserMode ? [5, 10, 15, 30, 45, 60] : [15, 30, 45, 60, 90]).map((x) => (
               <option key={x} value={x}>
                 {x} seconds
               </option>
@@ -330,6 +364,23 @@ export default function NewProject({ onClose, onCreated }: Props) {
           </select>
         </label>
       </div>
+      {browserMode && (
+        <label className="field">
+          Caption script (optional)
+          <textarea
+            aria-label="Caption script"
+            rows={3}
+            value={captionScript}
+            maxLength={6000}
+            onChange={(e) => setCaptionScript(e.target.value)}
+            placeholder="One caption per line. Timings are evenly spaced; you can edit them later."
+          />
+          <small>
+            No speech is invented. Leave this blank, enter captions manually later, or optionally
+            download an English speech model using Auto captions.
+          </small>
+        </label>
+      )}
       <label className="field">
         Anything we should know?
         <textarea

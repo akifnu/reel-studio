@@ -17,6 +17,7 @@ import {
 import type { Changes, Config, Project, Proposal, Reel, Segment } from './types';
 import { api } from './api';
 import { controlSummary, time } from './utils';
+import { browserMode } from './features';
 
 type Props = {
   project: Project;
@@ -341,7 +342,8 @@ export default function Inspector(p: Props) {
             </label>
             <details className="caption-editor">
               <summary>
-                Correct the spoken captions <ChevronDown size={14} />
+                {browserMode ? 'Edit caption text' : 'Correct the spoken captions'}{' '}
+                <ChevronDown size={14} />
               </summary>
               {Object.entries(project.transcripts).flatMap(([src, tr]) =>
                 tr.sentences
@@ -620,6 +622,11 @@ export default function Inspector(p: Props) {
             </p>
             <div className="divider" />
             <h3>Sound effects</h3>
+            {browserMode && (
+              <p className="field-hint">
+                Optional soft tap at each cut. Off by default for new projects.
+              </p>
+            )}
             <Toggle
               label="Sound effects enabled"
               checked={!edit.sfx?.muted}
@@ -636,8 +643,9 @@ export default function Inspector(p: Props) {
               onChange={(gain_db) => onChange({ editing: { sfx: { gain_db } } })}
             />
             <p className="field-hint">
-              Effects follow the reference style. Enabling them does not add effect occasions when
-              the reference has none.
+              {browserMode
+                ? 'Adds a soft tap at each cut. Listen to the final mix before accepting.'
+                : 'Effects follow the reference style. Enabling them does not add effect occasions when the reference has none.'}
             </p>
           </>
         )}

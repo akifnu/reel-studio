@@ -101,6 +101,8 @@ export type Comment = {
   at: number;
 };
 export type Project = {
+  browserProgress?: string;
+  browserReady?: boolean;
   id: string;
   name: string;
   demo: boolean;

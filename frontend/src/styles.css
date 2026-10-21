@@ -3193,3 +3193,59 @@ input[type='checkbox'] {
     min-height: 30px;
   }
 }
+
+.browser-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 20px 32px;
+  padding: 16px;
+  background: #edf2e6;
+  border: 1px solid #d3ddc7;
+  border-radius: 12px;
+  font-size: 12px;
+  color: #42583e;
+}
+.browser-banner p {
+  line-height: 1.6;
+  margin: 5px 0 0;
+}
+.browser-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .browser-banner {
+    margin: 15px;
+    flex-wrap: wrap;
+  }
+  .browser-actions {
+    margin-left: 0;
+    flex-wrap: wrap;
+  }
+}
+
+.library-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.library-row > button:first-child {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.library-row > button.icon-button {
+  flex: 0 0 32px;
+  justify-content: center;
+}
+
+.direct-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 18px 0;
+}
